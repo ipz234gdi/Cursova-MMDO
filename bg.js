@@ -3,7 +3,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const ctx = canvas.getContext('2d', { alpha: false });
 
     const config = {
-        cellSize: 20,
+        cellSize: 28,
         padding: 1,
         bgColor: '#ffffff',
         shapeBend: 0.9,

@@ -82,7 +82,7 @@ class SimplexView {
                                 <th class="th-wagon">Вагон</th>
                                 <th>Парк</th>
                                 ${thTrains}
-                                <th>Пасаж.</th>
+                                <th>К-сть пасажирів</th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>

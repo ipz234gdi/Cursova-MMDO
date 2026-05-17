@@ -51,7 +51,7 @@ body {
     height: 100vh;
     background-color: rgba(255, 255, 255, 0.5);
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(7px);
+    backdrop-filter: blur(10px);
     border-radius: 0 12px 12px 0;
     overflow-y: auto;
     overflow-x: hidden;
@@ -708,7 +708,7 @@ body {
     /* More breathing room */
     overflow: hidden;
     opacity: 0;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(8px);
 }
 
 .iter-header {
