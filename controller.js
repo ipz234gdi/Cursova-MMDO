@@ -1,0 +1,277 @@
+class SimplexController {
+    constructor(view) {
+        this.view = view;
+        this.state = {
+            trainTypes: ['Швидкий', 'Пасажирський'],
+            wagonTypes: ['Багажний', 'Поштовий', 'Жорсткий', 'Купейний', "М'який"],
+            tableData: [
+                [1, 1],
+                [1, 0],
+                [5, 8],
+                [6, 4],
+                [4, 2],
+            ],
+            parkData: [12, 18, 89, 79, 35],
+            passengers: [0, 0, 58, 40, 32],
+            extraConstraints: [],
+        };
+    }
+
+    init() {
+        this._render();
+    }
+
+
+    _render() {
+        this.view.renderSidebar(this.state);
+        this._attachEvents();
+    }
+
+    _attachEvents() {
+        this.view.attachSolveListener(() => this._handleSolve());
+
+        document.querySelectorAll('.inp-cell').forEach(inp => {
+            inp.addEventListener('change', () => {
+                const wi = +inp.dataset.wi, ti = +inp.dataset.ti;
+                if (!this.state.tableData[wi]) this.state.tableData[wi] = [];
+                this.state.tableData[wi][ti] = parseFloat(inp.value) || 0;
+                this._refreshObjective();
+            });
+        });
+        document.querySelectorAll('.inp-park').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.state.parkData[+inp.dataset.wi] = parseFloat(inp.value) || 0;
+            });
+        });
+        document.querySelectorAll('.inp-pass').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.state.passengers[+inp.dataset.wi] = parseFloat(inp.value) || 0;
+                this._refreshObjective();
+            });
+        });
+        document.querySelectorAll('.inp-wagon-name').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.state.wagonTypes[+inp.dataset.wi] = inp.value;
+            });
+        });
+        document.querySelectorAll('.inp-train-name').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.state.trainTypes[+inp.dataset.ti] = inp.value;
+            });
+        });
+
+        document.querySelectorAll('.btn-del-row').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const wi = +btn.dataset.wi;
+                if (this.state.wagonTypes.length <= 1) return;
+                this.state.wagonTypes.splice(wi, 1);
+                this.state.tableData.splice(wi, 1);
+                this.state.parkData.splice(wi, 1);
+                this.state.passengers.splice(wi, 1);
+                this._render();
+            });
+        });
+
+        document.querySelectorAll('.btn-del-col').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const ti = +btn.dataset.col;
+                if (this.state.trainTypes.length <= 1) return;
+                this.state.trainTypes.splice(ti, 1);
+                this.state.tableData.forEach(row => row.splice(ti, 1));
+                this._render();
+            });
+        });
+
+        const btnAddW = document.getElementById('btnAddWagon');
+        if (btnAddW) btnAddW.addEventListener('click', () => {
+            this.state.wagonTypes.push('Новий');
+            this.state.tableData.push(new Array(this.state.trainTypes.length).fill(0));
+            this.state.parkData.push(0);
+            this.state.passengers.push(0);
+            this._render();
+        });
+
+        const btnAddT = document.getElementById('btnAddTrain');
+        if (btnAddT) btnAddT.addEventListener('click', () => {
+            this.state.trainTypes.push(`Тип ${this.state.trainTypes.length + 1}`);
+            this.state.tableData.forEach(row => row.push(0));
+            this._render();
+        });
+
+        document.querySelectorAll('.ec-var').forEach(sel => {
+            sel.addEventListener('change', () => {
+                this.state.extraConstraints[+sel.dataset.idx].varIdx = +sel.value;
+            });
+        });
+        document.querySelectorAll('.ec-sign').forEach(sel => {
+            sel.addEventListener('change', () => {
+                this.state.extraConstraints[+sel.dataset.idx].sign = sel.value;
+            });
+        });
+        document.querySelectorAll('.ec-val').forEach(inp => {
+            inp.addEventListener('change', () => {
+                this.state.extraConstraints[+inp.dataset.idx].value = parseFloat(inp.value) || 0;
+            });
+        });
+        document.querySelectorAll('.btn-del-ec').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.state.extraConstraints.splice(+btn.dataset.idx, 1);
+                this._render();
+            });
+        });
+
+        const btnAddEC = document.getElementById('btnAddEC');
+        if (btnAddEC) btnAddEC.addEventListener('click', () => {
+            this.state.extraConstraints.push({ varIdx: 0, sign: 'le', value: 0 });
+            this._render();
+        });
+
+        const btnHist = document.getElementById('btnHistory');
+        if (btnHist) btnHist.addEventListener('click', () => this._showHistory());
+    }
+
+    _refreshObjective() {
+        const n = this.state.trainTypes.length;
+        const objExpr = document.querySelector('.obj-expr');
+        if (!objExpr) return;
+        const obj = this._buildObjective();
+        const terms = obj.map((c, i) => {
+            if (c === 0) return null;
+            return `${c}<span class="var-sub">x<sub>${i + 1}</sub></span>`;
+        }).filter(Boolean).join(' + ');
+        objExpr.innerHTML = terms || '—';
+    }
+
+
+    _buildObjective() {
+        const n = this.state.trainTypes.length;
+        const obj = new Array(n).fill(0);
+        for (let t = 0; t < n; t++) {
+            for (let w = 0; w < this.state.wagonTypes.length; w++) {
+                const coeff = (this.state.tableData[w] && this.state.tableData[w][t]) || 0;
+                const pass = this.state.passengers[w] || 0;
+                obj[t] += coeff * pass;
+            }
+        }
+        return obj;
+    }
+
+    _buildConstraintsAndBounds() {
+        const n = this.state.trainTypes.length;
+        const constraints = [];
+        const bounds = [];
+
+        for (let w = 0; w < this.state.wagonTypes.length; w++) {
+            const row = new Array(n).fill(0);
+            for (let t = 0; t < n; t++) {
+                row[t] = (this.state.tableData[w] && this.state.tableData[w][t]) || 0;
+            }
+            constraints.push(row);
+            bounds.push(this.state.parkData[w] || 0);
+        }
+
+        for (const ec of this.state.extraConstraints) {
+            const row = new Array(n).fill(0);
+            if (ec.sign === 'le') {
+                row[ec.varIdx] = 1;
+                constraints.push(row);
+                bounds.push(ec.value);
+            } else if (ec.sign === 'ge') {
+                row[ec.varIdx] = -1;
+                constraints.push(row);
+                bounds.push(-ec.value);
+            } else if (ec.sign === 'eq') {
+                const row2 = new Array(n).fill(0);
+                row[ec.varIdx] = 1;
+                row2[ec.varIdx] = -1;
+                constraints.push(row);
+                bounds.push(ec.value);
+                constraints.push(row2);
+                bounds.push(-ec.value);
+            }
+        }
+
+        return { constraints, bounds };
+    }
+
+    /* ── Розв'язання ──────────────────────────────── */
+
+    _handleSolve() {
+        const btn = document.getElementById('solveBtn');
+        if (btn) { btn.disabled = true; btn.classList.add('btn--running'); }
+        this.view.renderLoading();
+
+        setTimeout(() => {
+            try {
+                const objective = this._buildObjective();
+                const { constraints, bounds } = this._buildConstraintsAndBounds();
+                console.log('Objective:', objective);
+                console.log('Constraints:', constraints, 'Bounds:', bounds);
+
+                const model = new SimplexModel(objective, constraints, bounds);
+                const result = model.solve();
+                console.log('Simplex result:', result.status, result.optimalPlan, 'Z=', result.maxZ);
+
+                let intResult = null;
+                if (result.status === 'success') {
+                    console.log('Starting Branch and Bound...');
+                    intResult = SimplexModel.solveInteger(objective, constraints, bounds);
+                    console.log('BnB result:', intResult.status, intResult.integerPlan, 'Z=', intResult.integerZ);
+                }
+
+                console.log('Rendering result...');
+                this.view.renderResult(result, intResult);
+                console.log('Render complete');
+
+                if (result.status === 'success') {
+                    SimplexModel.saveToHistory({
+                        trainTypes: [...this.state.trainTypes],
+                        wagonTypes: [...this.state.wagonTypes],
+                        objective,
+                        maxZ: result.maxZ,
+                        optimalPlan: result.optimalPlan,
+                        integerZ: intResult && intResult.status === 'success' ? intResult.integerZ : null,
+                        integerPlan: intResult && intResult.status === 'success' ? intResult.integerPlan : null,
+                    });
+                }
+            } catch (err) {
+                console.error('Помилка:', err);
+                this.view.main.innerHTML = `
+                    <div class="error-wrap">
+                        <div class="error-icon">⚠</div>
+                        <p>Помилка: ${err.message}</p>
+                    </div>`;
+            } finally {
+                const solveBtn = document.getElementById('solveBtn');
+                if (solveBtn) { solveBtn.disabled = false; solveBtn.classList.remove('btn--running'); }
+            }
+        }, 350);
+    }
+
+    /* ── Історія ──────────────────────────────────── */
+
+    _showHistory() {
+        const data = SimplexModel.loadHistory();
+        this.view.renderHistoryPanel(
+            data,
+            null,
+            () => { SimplexModel.clearHistory(); },
+            (idx) => {
+                const entry = data[idx];
+                if (entry && entry.trainTypes) {
+                    this.state.trainTypes = entry.trainTypes;
+                }
+                if (entry && entry.wagonTypes) {
+                    this.state.wagonTypes = entry.wagonTypes;
+                }
+                this._render();
+            }
+        );
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const view = new SimplexView();
+    const controller = new SimplexController(view);
+    controller.init();
+});
