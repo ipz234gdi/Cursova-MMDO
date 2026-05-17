@@ -21,7 +21,6 @@ class SimplexController {
         this._render();
     }
 
-
     _render() {
         this.view.renderSidebar(this.state);
         this._attachEvents();
@@ -142,7 +141,6 @@ class SimplexController {
         objExpr.innerHTML = terms || '—';
     }
 
-
     _buildObjective() {
         const n = this.state.trainTypes.length;
         const obj = new Array(n).fill(0);
@@ -195,7 +193,6 @@ class SimplexController {
     }
 
     /* ── Розв'язання ──────────────────────────────── */
-
     _handleSolve() {
         const btn = document.getElementById('solveBtn');
         if (btn) { btn.disabled = true; btn.classList.add('btn--running'); }
@@ -220,13 +217,17 @@ class SimplexController {
                 }
 
                 console.log('Rendering result...');
-                this.view.renderResult(result, intResult);
+                this.view.renderResult(result, intResult, objective);
                 console.log('Render complete');
 
                 if (result.status === 'success') {
                     SimplexModel.saveToHistory({
                         trainTypes: [...this.state.trainTypes],
                         wagonTypes: [...this.state.wagonTypes],
+                        tableData: this.state.tableData.map(r => [...r]),
+                        parkData: [...this.state.parkData],
+                        passengers: [...this.state.passengers],
+                        extraConstraints: JSON.parse(JSON.stringify(this.state.extraConstraints)),
                         objective,
                         maxZ: result.maxZ,
                         optimalPlan: result.optimalPlan,
@@ -249,7 +250,6 @@ class SimplexController {
     }
 
     /* ── Історія ──────────────────────────────────── */
-
     _showHistory() {
         const data = SimplexModel.loadHistory();
         this.view.renderHistoryPanel(
@@ -258,13 +258,16 @@ class SimplexController {
             () => { SimplexModel.clearHistory(); },
             (idx) => {
                 const entry = data[idx];
-                if (entry && entry.trainTypes) {
-                    this.state.trainTypes = entry.trainTypes;
-                }
-                if (entry && entry.wagonTypes) {
-                    this.state.wagonTypes = entry.wagonTypes;
+                if (entry) {
+                    if (entry.trainTypes) this.state.trainTypes = entry.trainTypes;
+                    if (entry.wagonTypes) this.state.wagonTypes = entry.wagonTypes;
+                    if (entry.tableData) this.state.tableData = entry.tableData;
+                    if (entry.parkData) this.state.parkData = entry.parkData;
+                    if (entry.passengers) this.state.passengers = entry.passengers;
+                    if (entry.extraConstraints) this.state.extraConstraints = entry.extraConstraints;
                 }
                 this._render();
+                this._handleSolve();
             }
         );
     }

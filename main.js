@@ -2,11 +2,14 @@ const { app, BrowserWindow } = require('electron')
 
 const createWindow = () => {
   const win = new BrowserWindow({
-    width: 800,
-    height: 600
+    width: 1080,
+    height: 720
   })
 
   win.loadFile('index.html')
+  // win.webContents.on('console-message', (event, level, message) => {
+  //   console.log('[RENDERER]:', message)
+  // })
 }
 
 app.on('ready', () => {

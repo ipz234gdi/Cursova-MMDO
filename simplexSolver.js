@@ -11,7 +11,7 @@ class SimplexModel {
     }
 
     getVarName(idx) {
-        return idx < this.numVars ? `x${idx + 1}` : `s${idx - this.numVars + 1}`;
+        return `X${idx + 1}`;
     }
 
     _buildTableau() {
@@ -77,8 +77,14 @@ class SimplexModel {
             const pr = this._getPivotRow(pc);
             if (pr === -1) return { status: 'unbounded' };
             const entering = this.getVarName(pc), leaving = this.getVarName(this.basis[pr]);
+
+            this.history[this.history.length - 1].pivotRow = pr;
+            this.history[this.history.length - 1].pivotCol = pc;
+            this.history[this.history.length - 1].entering = entering;
+            this.history[this.history.length - 1].leaving = leaving;
+
             this._pivot(pr, pc);
-            this.history.push(this._snapshot({ iteration: iter, pivotRow: pr, pivotCol: pc, entering, leaving }));
+            this.history.push(this._snapshot({ iteration: iter }));
         }
         const n = this.numVars, m = this.numConstraints;
         const solution = new Array(n).fill(0);
@@ -107,45 +113,72 @@ class SimplexModel {
             return { status: 'success', integerPlan: { ...relaxedResult.optimalPlan }, integerZ: relaxedResult.maxZ, relaxedResult, branchLog: ['Релаксований розв\'язок вже цілочисельний'] };
         }
 
-        const ub = new Array(n).fill(1000);
-        for (let j = 0; j < n; j++) {
-            for (let i = 0; i < constraints.length; i++) {
-                if (constraints[i][j] > 1e-10 && bounds[i] >= 0) {
-                    ub[j] = Math.min(ub[j], Math.floor(bounds[i] / constraints[i][j]));
-                }
+        const branchLog = [];
+        const relaxedVals = [];
+        for (let j = 0; j < n; j++) relaxedVals.push(relaxedResult.optimalPlan[`x${j + 1}`] || 0);
+
+        const relaxedStr = relaxedVals.map(v => v.toFixed(2)).join('; ');
+        branchLog.push(`Неперервний оптимум: (${relaxedStr})`);
+        branchLog.push(`Досліджуємо цілі точки в околі оптимуму:`);
+
+        const floors = relaxedVals.map(v => Math.floor(v));
+        const ceils = relaxedVals.map(v => Math.ceil(v));
+
+        const combos = 1 << n;
+        const candidates = [];
+        for (let mask = 0; mask < combos; mask++) {
+            const point = [];
+            for (let j = 0; j < n; j++) {
+                point.push((mask & (1 << j)) ? ceils[j] : floors[j]);
+            }
+            const key = point.join('; ');
+            if (!candidates.some(c => c.join('; ') === key)) {
+                candidates.push(point);
             }
         }
 
-        let bestZ = -Infinity, bestPlan = null, branchLog = [], checked = 0;
+        let bestZ = -Infinity, bestPlan = null;
 
-        const vars = new Array(n).fill(0);
-        function enumerate(depth) {
-            if (depth === n) {
-                for (let i = 0; i < constraints.length; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < n; j++) sum += constraints[i][j] * vars[j];
-                    if (sum > bounds[i] + 1e-9) return;
+        for (const point of candidates) {
+            const pointStr = point.map((v, j) => `x${j + 1}=${v}`).join(', ');
+            branchLog.push(`Перевірка точки (${point.join('; ')}):`);
+
+            let feasible = true;
+            for (let i = 0; i < constraints.length; i++) {
+                let sum = 0;
+                const parts = [];
+                for (let j = 0; j < n; j++) {
+                    sum += constraints[i][j] * point[j];
+                    if (constraints[i][j] !== 0) {
+                        parts.push(`${constraints[i][j]}(${point[j]})`);
+                    }
                 }
-                checked++;
+                const ok = sum <= bounds[i] + 1e-9;
+                branchLog.push(`  ${i + 1}. ${parts.join(' + ')} = ${sum} ≤ ${bounds[i]} — ${ok ? 'виконується' : 'НЕ виконується'}`);
+                if (!ok) { feasible = false; break; }
+            }
+
+            if (feasible) {
                 let z = 0;
-                for (let j = 0; j < n; j++) z += objective[j] * vars[j];
+                const fParts = [];
+                for (let j = 0; j < n; j++) {
+                    z += objective[j] * point[j];
+                    fParts.push(`${objective[j]}(${point[j]})`);
+                }
+                branchLog.push(`  F = ${fParts.join(' + ')} = ${z}`);
                 if (z > bestZ + 1e-9) {
                     bestZ = z;
                     bestPlan = {};
-                    for (let j = 0; j < n; j++) bestPlan[`x${j + 1}`] = vars[j];
-                    branchLog.push(`x = [${vars.join(', ')}], Z = ${z}`);
+                    for (let j = 0; j < n; j++) bestPlan[`x${j + 1}`] = point[j];
                 }
-                return;
-            }
-            for (let v = 0; v <= ub[depth]; v++) {
-                vars[depth] = v;
-                enumerate(depth + 1);
+            } else {
+                branchLog.push(`  Точка не задовольняє обмеження.`);
             }
         }
-        enumerate(0);
-        branchLog.push(`Перевірено ${checked} допустимих цілочисельних точок`);
 
         if (!bestPlan) return { status: 'no_integer', relaxedResult, branchLog };
+        const planStr = Object.entries(bestPlan).map(([k, v]) => `${k}=${v}`).join(', ');
+        branchLog.push(`Оптимальний цілочисельний розв'язок: ${planStr}, F = ${bestZ}`);
         return { status: 'success', integerPlan: bestPlan, integerZ: Math.round(bestZ * 10000) / 10000, relaxedResult, branchLog };
     }
 
@@ -154,10 +187,12 @@ class SimplexModel {
         entry.timestamp = new Date().toISOString();
         h.unshift(entry);
         if (h.length > 50) h.length = 50;
-        try { localStorage.setItem('simplex_history', JSON.stringify(h)); } catch(e) {}
+        try { localStorage.setItem('simplex_history', JSON.stringify(h)); } catch (e) { }
     }
+
     static loadHistory() {
-        try { const d = localStorage.getItem('simplex_history'); return d ? JSON.parse(d) : []; } catch(e) { return []; }
+        try { const d = localStorage.getItem('simplex_history'); return d ? JSON.parse(d) : []; } catch (e) { return []; }
     }
+
     static clearHistory() { localStorage.removeItem('simplex_history'); }
 }

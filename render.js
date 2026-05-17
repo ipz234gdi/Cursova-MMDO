@@ -4,8 +4,6 @@ class SimplexView {
         this.main = document.querySelector('.main-content');
     }
 
-    /* ── Sidebar ─────────────────────────────────── */
-
     renderSidebar(state) {
         const { trainTypes, wagonTypes, tableData, passengers, parkData, extraConstraints } = state;
         const n = trainTypes.length;
@@ -68,7 +66,7 @@ class SimplexView {
                 <div class="sb-label">Цільова функція</div>
                 <div class="sb-objective">
                     <span class="obj-kw">max</span>
-                    <span class="obj-z">Z</span>
+                    <span class="obj-z">F</span>
                     <span class="obj-eq">=</span>
                     <span class="obj-expr">${objTerms || '—'}</span>
                 </div>
@@ -111,14 +109,13 @@ class SimplexView {
                 </svg>
             </button>
 
-            <button class="btn-history" id="btnHistory">📋 Історія обчислень</button>
+            <button class="btn-history" id="btnHistory">Історія обчислень</button>
 
             <div class="sb-footer">Курсова робота · ЛП</div>
         `;
     }
 
     /* ── Loading ──────────────────────────────────── */
-
     renderLoading() {
         this.main.innerHTML = `
             <div class="loading-wrap">
@@ -128,23 +125,23 @@ class SimplexView {
     }
 
     /* ── Result ───────────────────────────────────── */
-
-    renderResult(result, intResult) {
+    renderResult(result, intResult, objective) {
         if (result.status !== 'success') {
             this.main.innerHTML = `
                 <div class="error-wrap">
-                    <div class="error-icon">⚠</div>
+                    <div class="error-icon">!</div>
                     <p>Задача не має оптимального розв'язку.</p>
                 </div>`;
             return;
         }
 
         const { optimalPlan, maxZ, history, numVars, numConstraints } = result;
+        const obj = objective || [];
 
         let cardsHtml = `
             <div class="result-cards">
                 <div class="rcard rcard--primary">
-                    <div class="rcard-label">Максимум Z (симплекс)</div>
+                    <div class="rcard-label">Максимум F (симплекс)</div>
                     <div class="rcard-value">${maxZ.toLocaleString('uk-UA')}</div>
                     <div class="rcard-hint">пасажирів</div>
                 </div>
@@ -158,10 +155,31 @@ class SimplexView {
 
         let intHtml = '';
         if (intResult && intResult.status === 'success') {
+            const logLines = (intResult.branchLog || []).map(l => {
+                const txt = typeof l === 'string' ? l : (l.msg || JSON.stringify(l));
+                if (txt.startsWith('  ') && (txt.includes('виконується') || txt.includes('НЕ виконується'))) {
+                    const ok = txt.includes('виконується') && !txt.includes('НЕ');
+                    return `<div class="int-check ${ok ? 'int-ok' : 'int-fail'}">${txt.trim()}</div>`;
+                }
+                if (txt.startsWith('Перевірка точки')) {
+                    return `<div class="int-point-title">${txt}</div>`;
+                }
+                if (txt.startsWith('  F =')) {
+                    return `<div class="int-fval">${txt.trim()}</div>`;
+                }
+                if (txt.startsWith('Оптимальний')) {
+                    return `<div class="int-final">${txt}</div>`;
+                }
+                if (txt.startsWith('  Точка не')) {
+                    return `<div class="int-fail-msg">${txt.trim()}</div>`;
+                }
+                return `<div class="int-log-line">${txt}</div>`;
+            }).join('');
+
             intHtml = `
             <div class="result-cards">
                 <div class="rcard rcard--integer">
-                    <div class="rcard-label">Максимум Z (цілочисельний)</div>
+                    <div class="rcard-label">Максимум F (цілочисельний)</div>
                     <div class="rcard-value">${intResult.integerZ.toLocaleString('uk-UA')}</div>
                     <div class="rcard-hint">пасажирів</div>
                 </div>
@@ -173,11 +191,9 @@ class SimplexView {
                 </div>`).join('')}
             </div>
             <div class="iter-section">
-                <h2 class="iter-section-title">Branch and Bound — лог</h2>
-                <div class="iter-block" style="opacity:1;padding:12px 14px;">
-                    ${(intResult.branchLog || []).map(l =>
-                        `<div style="font-size:12px;padding:2px 0;color:#555;">${typeof l === 'string' ? l : l.msg || JSON.stringify(l)}</div>`
-                    ).join('')}
+                <h2 class="iter-section-title">Знаходження цілочисельного розв'язку</h2>
+                <div class="iter-block" style="opacity:1;padding:16px 18px;">
+                    ${logLines}
                 </div>
             </div>`;
         } else if (intResult && intResult.status === 'no_integer') {
@@ -186,8 +202,9 @@ class SimplexView {
             </div>`;
         }
 
+        const lastIdx = history.length - 1;
         const iterHtml = history
-            .map(step => this._renderIteration(step, numVars, numConstraints))
+            .map((step, idx) => this._renderIteration(step, numVars, numConstraints, obj, idx === lastIdx))
             .join('');
 
         this.main.innerHTML = `
@@ -220,19 +237,17 @@ class SimplexView {
         return 'ій';
     }
 
-    _renderIteration(step, numVars, numConstraints) {
+    _renderIteration(step, numVars, numConstraints, objective, isLast) {
         const { iteration, tableau, basis, pivotRow, pivotCol, entering, leaving } = step;
         const n = numVars, m = numConstraints, cols = tableau[0].length;
 
-        const headers = [
-            ...Array.from({ length: n }, (_, i) => `x<sub>${i + 1}</sub>`),
-            ...Array.from({ length: m }, (_, i) => `s<sub>${i + 1}</sub>`),
-            'ОЧ',
-        ];
-        const rowLabels = [
-            ...basis.map(b => b < n ? `x<sub>${b + 1}</sub>` : `s<sub>${b - n + 1}</sub>`),
-            'Z',
-        ];
+        const varName = (idx) => `X${idx + 1}`;
+        const cBasis = basis.map(b => b < n ? objective[b] : 0);
+
+        const colHeaders = Array.from({ length: cols - 1 }, (_, i) => `A${i + 1}`);
+        const cRow = Array.from({ length: cols - 1 }, (_, i) => i < n ? objective[i] : 0);
+
+        const hasPivot = !isLast && pivotRow !== null && pivotCol !== null;
 
         const pivotInfoHtml = (entering && leaving)
             ? `<div class="pivot-info">
@@ -242,28 +257,45 @@ class SimplexView {
                    <span class="pi-label">Виводиться:</span>
                    <span class="pi-leave">${leaving}</span>
                </div>`
-            : '<div class="pivot-info pi-initial">Початкова таблиця</div>';
+            : (isLast
+                ? '<div class="pivot-info pi-initial">Оптимальна таблиця</div>'
+                : '<div class="pivot-info pi-initial">Початкова таблиця</div>');
 
-        const bodyRows = tableau.map((row, ri) => {
-            const isZRow = ri === m;
-            const cells = row.map((val, ci) => {
-                const isRhs = ci === cols - 1;
-                const isPE = ri === pivotRow && ci === pivotCol;
-                const isPR = ri === pivotRow;
-                const isPC = ci === pivotCol && !isZRow;
+        const thCells = colHeaders.map(h => `<th>${h}</th>`).join('');
+        const cCells = cRow.map(c => `<td class="tc tc--z">${c}</td>`).join('');
+
+        const bodyRows = [];
+        for (let ri = 0; ri < m; ri++) {
+            const bIdx = basis[ri];
+            const bName = `X${bIdx + 1}`;
+            const cVal = bIdx < n ? objective[bIdx] : 0;
+            const isOptBasis = isLast && bIdx < n;
+
+            let cells = '';
+            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''}">${cVal}</td>`;
+            cells += `<td class="tc tc--basis${isOptBasis ? ' tc--pivot' : ''}">${bName}</td>`;
+            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''} tc--rhs">${this._fmt(tableau[ri][cols - 1])}</td>`;
+
+            for (let ci = 0; ci < cols - 1; ci++) {
+                const isPE = hasPivot && ri === pivotRow && ci === pivotCol;
+                const isPR = hasPivot && ri === pivotRow;
+                const isPC = hasPivot && ci === pivotCol;
                 let cls = 'tc';
                 if (isPE) cls += ' tc--pivot';
                 else if (isPR) cls += ' tc--prow';
                 else if (isPC) cls += ' tc--pcol';
-                if (isZRow) cls += ' tc--z';
-                if (isRhs) cls += ' tc--rhs';
-                return `<td class="${cls}">${this._fmt(val)}</td>`;
-            }).join('');
-            return `<tr class="${isZRow ? 'tr--z' : ''}">
-                        <td class="tc tc--basis">${rowLabels[ri]}</td>
-                        ${cells}
-                    </tr>`;
-        }).join('');
+                cells += `<td class="${cls}">${this._fmt(tableau[ri][ci])}</td>`;
+            }
+            bodyRows.push(`<tr>${cells}</tr>`);
+        }
+
+        const zRow = tableau[m];
+        let deltaRow = `<td class="tc tc--z"></td><td class="tc tc--z tc--basis">Δ</td>`;
+        deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1])}</td>`;
+        for (let ci = 0; ci < cols - 1; ci++) {
+            deltaRow += `<td class="tc tc--z">${this._fmt(zRow[ci])}</td>`;
+        }
+        bodyRows.push(`<tr class="tr--z">${deltaRow}</tr>`);
 
         return `
             <div class="iter-block">
@@ -273,11 +305,17 @@ class SimplexView {
                 </div>
                 <div class="table-scroll-wrap">
                     <table class="stab">
-                        <thead><tr>
-                            <th class="th--basis">Базис</th>
-                            ${headers.map(h => `<th>${h}</th>`).join('')}
-                        </tr></thead>
-                        <tbody>${bodyRows}</tbody>
+                        <thead>
+                            <tr>
+                                <th></th><th>C</th><th>−</th>
+                                ${cRow.map(c => `<th>${c}</th>`).join('')}
+                            </tr>
+                            <tr>
+                                <th></th><th>B</th><th>A0</th>
+                                ${colHeaders.map(h => `<th>${h}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>${bodyRows.join('')}</tbody>
                     </table>
                 </div>
             </div>`;
@@ -299,7 +337,6 @@ class SimplexView {
     }
 
     /* ── History panel ────────────────────────────── */
-
     renderHistoryPanel(historyData, onClose, onClear, onLoad) {
         const old = document.querySelector('.history-overlay');
         if (old) old.remove();
@@ -314,8 +351,8 @@ class SimplexView {
             itemsHtml = historyData.map((h, i) => {
                 const d = new Date(h.timestamp);
                 const dateStr = d.toLocaleString('uk-UA');
-                const zStr = h.maxZ !== undefined ? `Z = ${h.maxZ}` : '';
-                const intStr = h.integerZ !== undefined ? ` | Z(ціле) = ${h.integerZ}` : '';
+                const zStr = h.maxZ !== undefined ? `F = ${h.maxZ}` : '';
+                const intStr = h.integerZ !== undefined ? ` | F(ціле) = ${h.integerZ}` : '';
                 return `<div class="history-item" data-idx="${i}">
                     <div class="hi-date">${dateStr}</div>
                     <div class="hi-result">${zStr}${intStr}</div>
