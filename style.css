@@ -33,7 +33,7 @@ body {
 }
 
 #bgCanvas {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
@@ -971,6 +971,72 @@ body {
     padding: 6px 14px;
     border-radius: 6px;
     font-size: 12px;
-    font-family: inherit;
     cursor: pointer;
+}
+
+/* ── Mobile Responsiveness ─────────────────────── */
+@media (max-width: 900px) {
+    body {
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .sidebar {
+        position: relative;
+        width: 100%;
+        height: auto;
+        border-radius: 0 0 20px 20px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        padding-bottom: 24px;
+        z-index: 10;
+        /* Remove strict height constraints for mobile */
+        overflow-y: visible;
+    }
+
+    .main-content {
+        position: relative;
+        margin-left: 0;
+        width: 100%;
+        height: auto;
+        min-height: 50vh;
+        overflow-y: visible;
+        padding-bottom: 40px;
+    }
+
+    /* Keep data tables scrollable */
+    .sb-table-wrap, .table-scroll-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    }
+
+    .results-header {
+        padding: 24px 20px 0;
+    }
+
+    .iter-section {
+        padding: 16px 20px 32px;
+    }
+
+    /* Slightly smaller headers for small screens */
+    .results-title {
+        font-size: 18px;
+        padding: 6px 16px;
+    }
+    
+    .iter-section-title {
+        font-size: 16px;
+        padding: 8px 16px;
+    }
+
+    /* Stack result cards if needed */
+    .result-cards {
+        gap: 10px;
+        padding: 16px 20px;
+    }
+
+    .rcard {
+        min-width: 140px;
+        flex: 1;
+    }
 }
