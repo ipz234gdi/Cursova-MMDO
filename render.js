@@ -22,7 +22,7 @@ class SimplexView {
         }).filter(Boolean).join(' + ');
 
         const thTrains = trainTypes.map((t, ti) =>
-            `<th><input type="text" class="inp-train-name" data-ti="${ti}" value="${t}"> <button class="btn-del-col" data-col="${ti}" title="Видалити">×</button></th>`
+            `<th class="th-train"><div class="cell-with-del"><input type="text" class="inp-train-name" data-ti="${ti}" value="${t}"> <button class="btn-del-col" data-col="${ti}" title="Видалити">×</button></div></th>`
         ).join('');
 
         const rows = wagonTypes.map((w, wi) => {
@@ -33,8 +33,8 @@ class SimplexView {
             }).join('');
             const passCell = `<td><input type="number" class="inp-pass" data-wi="${wi}" value="${passengers[wi] || 0}" min="0"></td>`;
             return `<tr>
-                <td><input type="text" class="inp-wagon-name" data-wi="${wi}" value="${w}">
-                    <button class="btn-del-row" data-wi="${wi}" title="Видалити">×</button></td>
+                <td><div class="cell-with-del"><input type="text" class="inp-wagon-name" data-wi="${wi}" value="${w}">
+                    <button class="btn-del-row" data-wi="${wi}" title="Видалити">×</button></div></td>
                 ${parkCell}${trainCells}${passCell}
             </tr>`;
         }).join('');
@@ -65,10 +65,11 @@ class SimplexView {
             <div class="sb-section">
                 <div class="sb-label">Цільова функція</div>
                 <div class="sb-objective">
-                    <span class="obj-kw">max</span>
                     <span class="obj-z">F</span>
                     <span class="obj-eq">=</span>
                     <span class="obj-expr">${objTerms || '—'}</span>
+                    <span class="sb-subtitle">→</span>
+                    <span class="obj-kw">max</span>
                 </div>
             </div>
 
@@ -211,7 +212,7 @@ class SimplexView {
             <div class="results-header">
                 <div class="results-title-row">
                     <h1 class="results-title">Оптимальний розв'язок</h1>
-                    <span class="badge-optimal">Оптимально ✓</span>
+                    <span class="badge-optimal">Оптимально</span>
                 </div>
                 <p class="results-sub">Знайдено за ${history.length - 1} ітерац${this._iterSuffix(history.length - 1)}</p>
             </div>

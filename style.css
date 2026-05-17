@@ -229,9 +229,10 @@ body {
 /* delete buttons in table */
 .btn-del-col,
 .btn-del-row {
-    background: none;
+    background: rgba(255, 0, 0, 0.4);
     border: none;
-    color: #c44;
+    border-radius: 4px;
+    color: rgb(255, 255, 255);
     font-size: 13px;
     cursor: pointer;
     padding: 0 2px;
@@ -243,6 +244,18 @@ body {
 .btn-del-col:hover,
 .btn-del-row:hover {
     opacity: 1;
+}
+
+.cell-with-del {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.cell-with-del input {
+    flex: 1;
+    min-width: 0;
 }
 
 /* ── Add buttons ───────────────────────────────── */
@@ -460,9 +473,15 @@ body {
     backdrop-filter: blur(6px);
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 10px;
-    padding: 14px 18px;
+    padding: 14px 18px 8px 18px;
     min-width: 120px;
     opacity: 0;
+    display: grid;
+    grid-template-rows: auto auto;
+    grid-template-columns: min-content auto;
+    grid-template-areas:
+        "label label"
+        "value hint";
 }
 
 .rcard--primary {
@@ -478,20 +497,26 @@ body {
 }
 
 .rcard-label {
+    grid-area: label;
     font-size: 11px;
     opacity: 0.8;
     font-weight: 500;
 }
 
 .rcard-value {
+    grid-area: value;
     font-size: 24px;
     font-weight: 700;
-    margin: 2px 0;
+    margin: 2px 6px 2px 0;
 }
 
 .rcard-hint {
+    grid-area: hint;
     font-size: 10px;
     opacity: 0.6;
+    margin: 6px 0;
+    display: flex;
+    align-items: flex-end;
 }
 
 /* animation */
@@ -519,28 +544,34 @@ body {
     margin-bottom: 4px;
     color: var(--primary-color);
 }
+
 .int-point-title:first-child {
     margin-top: 0;
 }
+
 .int-check {
     font-family: monospace;
     font-size: 12px;
     padding: 2px 0 2px 14px;
     position: relative;
 }
+
 .int-check::before {
     content: "•";
     position: absolute;
     left: 0;
 }
+
 .int-ok {
     color: #16a34a;
 }
+
 .int-fail {
     color: #dc2626;
     text-decoration: line-through;
     opacity: 0.8;
 }
+
 .int-fval {
     font-weight: 600;
     color: #b45309;
@@ -550,20 +581,23 @@ body {
     display: inline-block;
     margin: 4px 0;
 }
+
 .int-final {
     font-weight: 700;
     font-size: 14px;
     margin-top: 16px;
     padding-top: 12px;
-    border-top: 1px dashed rgba(0,0,0,0.1);
+    border-top: 1px dashed rgba(0, 0, 0, 0.1);
     color: var(--primary-color);
 }
+
 .int-fail-msg {
     color: #dc2626;
     font-style: italic;
     font-size: 12px;
     padding-left: 14px;
 }
+
 .int-log-line {
     font-size: 12px;
     color: #555;

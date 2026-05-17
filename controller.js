@@ -193,7 +193,7 @@ class SimplexController {
     }
 
     /* ── Розв'язання ──────────────────────────────── */
-    _handleSolve() {
+    _handleSolve(skipHistorySave = false) {
         const btn = document.getElementById('solveBtn');
         if (btn) { btn.disabled = true; btn.classList.add('btn--running'); }
         this.view.renderLoading();
@@ -220,7 +220,7 @@ class SimplexController {
                 this.view.renderResult(result, intResult, objective);
                 console.log('Render complete');
 
-                if (result.status === 'success') {
+                if (result.status === 'success' && !skipHistorySave) {
                     SimplexModel.saveToHistory({
                         trainTypes: [...this.state.trainTypes],
                         wagonTypes: [...this.state.wagonTypes],
@@ -267,7 +267,7 @@ class SimplexController {
                     if (entry.extraConstraints) this.state.extraConstraints = entry.extraConstraints;
                 }
                 this._render();
-                this._handleSolve();
+                this._handleSolve(true);
             }
         );
     }

@@ -177,7 +177,7 @@ class SimplexModel {
         }
 
         if (!bestPlan) return { status: 'no_integer', relaxedResult, branchLog };
-        const planStr = Object.entries(bestPlan).map(([k, v]) => `${k}=${v}`).join(', ');
+        const planStr = Object.entries(bestPlan).map(([k, v]) => `${k} = ${v}`).join(', ');
         branchLog.push(`Оптимальний цілочисельний розв'язок: ${planStr}, F = ${bestZ}`);
         return { status: 'success', integerPlan: bestPlan, integerZ: Math.round(bestZ * 10000) / 10000, relaxedResult, branchLog };
     }
