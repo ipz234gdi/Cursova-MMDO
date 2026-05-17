@@ -154,7 +154,7 @@ class SimplexModel {
                     }
                 }
                 const ok = sum <= bounds[i] + 1e-9;
-                branchLog.push(`  ${i + 1}. ${parts.join(' + ')} = ${sum} ≤ ${bounds[i]} — ${ok ? 'виконується' : 'НЕ виконується'}`);
+                branchLog.push(`  ${i + 1}. ${parts.join(' + ')} = ${sum} ≤ ${bounds[i]} - ${ok ? 'виконується' : 'НЕ виконується'}`);
                 if (!ok) { feasible = false; break; }
             }
 
