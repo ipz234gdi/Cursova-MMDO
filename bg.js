@@ -2,15 +2,14 @@ window.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('bgCanvas');
     const ctx = canvas.getContext('2d');
 
-    // --- ГОЛОВНІ НАЛАШТУВАННЯ (Оновлений конфіг) ---
     const config = {
-        cellSize: 20,        // Розмір клітинки
+        cellSize: 24,        // Розмір клітинки
         padding: 1,          // Відступ між зірками
         bgColor: '#ffffff',  // Глибокий колір фону
         shapeBend: 0.9,      // Впуклість ромба (0.0 = зірка, 0.9 = коло)
 
         // --- НАЛАШТУВАННЯ КАРТИ ТА ПАЛІТРИ ---
-        palette: ['#000000', '#00a2ff', '#f7e81e', '#f75110'], // Палітра висот
+        palette: ['#000000', '#00a2ff', '#34e65a', '#f7e81e', '#f75110'], // Палітра висот
         waterColor: '#ffffff', // Колір для океанів
 
         defaultMapScale: 0.0007, // Стандартний масштаб, якщо не вказаний для країни
@@ -18,7 +17,6 @@ window.addEventListener('DOMContentLoaded', () => {
         maxZoomOutScale: 0.003,   // Масштаб при першому старті сайту (найбільше віддалення)
         waterThreshold: 12,      // Поріг рівня моря (0-255). Зменшено, щоб не зрізати низовини
 
-        // ВАЖЛИВО ДЛЯ ТЕМНИХ КАРТ: Максимальна яскравість (0-255)
         mapMaxBrightness: 120,
 
         // --- НОВІ ФІЧІ (ДЕТАЛІЗАЦІЯ ТА ДИНАМІКА СУШІ) ---
@@ -33,13 +31,13 @@ window.addEventListener('DOMContentLoaded', () => {
         maxBend: 0.9,           // Форма гір (0.0 = гостра зірка)
 
         // --- НАЛАШТУВАННЯ ЗГЛАДЖУВАННЯ ТА ОПТИМІЗАЦІЇ ---
-        smoothingLevel: 5,          // Параметр збережено, але двигун тепер використовує SAT (ідеальне згладжування O(1))
+        smoothingLevel: 2,          // Параметр збережено, але двигун тепер використовує SAT (ідеальне згладжування O(1))
 
-        colorUpdateInterval: 10,     // Як часто зірка "дивиться" на карту (в мілісекундах).
+        colorUpdateInterval: 30,     // Як часто зірка "дивиться" на карту (в мілісекундах).
         colorTransitionSpeed: 0.1,   // Швидкість плавного перетікання кольору (від 0.01 до 1.0)
 
         // --- СТУПЕНІ ЗМІНИ КОЛЬОРУ (Квантування) ---
-        colorSteps: 5,       // Ступені зміни кольору (0 = плавний градієнт)
+        colorSteps: 50,       // Ступені зміни кольору (0 = плавний градієнт)
         alphaSteps: 3,       // Ступені зміни прозорості
 
         minAlpha: 0.6,       // Прозорість найнижчої точки суші (низовини)
@@ -67,14 +65,13 @@ window.addEventListener('DOMContentLoaded', () => {
         ]
     };
 
-    // --- ДИНАМІЧНІ ЗМІННІ ---
     let currentCellSize = config.cellSize;
     let currentMapScale = config.defaultMapScale;
 
     const CACHE_STEPS = 20;
     let shapeCaches = [];
+    let spriteCache = new Map();
 
-    // --- ДОПОМІЖНІ ФУНКЦІЇ ДЛЯ КОЛЬОРІВ ---
     function hexToRgb(hex) {
         let r = 0, g = 0, b = 0;
         if (hex.length === 4) {
@@ -100,15 +97,13 @@ window.addEventListener('DOMContentLoaded', () => {
         ];
     }
 
-    // --- СИСТЕМНИЙ МОДУЛЬ ЛОКАЛЬНОЇ КАРТИ (SUPER OPTIMIZED SAT ENGINE) ---
     const EarthModule = (function () {
         let imageData = null;
-        let sumAreaTable = null; // Інтегральне зображення для ідеального згладжування за мікросекунди
+        let sumAreaTable = null;
         let imgWidth = 0;
         let imgHeight = 0;
         let isLoaded = false;
 
-        // Функція отримання суми прямокутника з інтегрального зображення
         function getSum(x1, y1, x2, y2) {
             x1 = Math.max(0, Math.min(imgWidth - 1, Math.round(x1)));
             y1 = Math.max(0, Math.min(imgHeight - 1, Math.round(y1)));
@@ -126,7 +121,6 @@ window.addEventListener('DOMContentLoaded', () => {
             return a - b - c + d;
         }
 
-        // Робота з переходом через межі карти (зациклення довготи)
         function getWrappedAreaSum(x1, y1, w, h) {
             let ix1 = Math.round(x1);
             let iy1 = Math.round(y1);
@@ -163,11 +157,10 @@ window.addEventListener('DOMContentLoaded', () => {
                     imgWidth = img.width;
                     imgHeight = img.height;
 
-                    // Побудова Інтегрального зображення (робиться лише раз!)
                     sumAreaTable = new Float64Array(imgWidth * imgHeight);
                     for (let y = 0; y < imgHeight; y++) {
                         for (let x = 0; x < imgWidth; x++) {
-                            let val = imageData[(y * imgWidth + x) * 4]; // Беремо червоний канал (ясність)
+                            let val = imageData[(y * imgWidth + x) * 4];
                             let sum = val;
                             if (x > 0) sum += sumAreaTable[y * imgWidth + (x - 1)];
                             if (y > 0) sum += sumAreaTable[(y - 1) * imgWidth + x];
@@ -205,12 +198,10 @@ window.addEventListener('DOMContentLoaded', () => {
                 let realX = nx * imgWidth;
                 let realY = y * imgWidth;
 
-                // Отримуємо площу (footprint), яку покриває 1 клітинка
                 let footprint = currentMapScale * imgWidth;
                 let startX = realX - footprint / 2;
                 let startY = realY - footprint / 2;
 
-                // Миттєвий розрахунок ідеального середнього для всієї площі
                 let { sum, area } = getWrappedAreaSum(startX, startY, footprint, footprint);
                 let finalBrightness = area > 0 ? sum / area : 0;
 
@@ -222,7 +213,6 @@ window.addEventListener('DOMContentLoaded', () => {
         };
     })();
 
-    // --- МОДУЛЬ 2D СІТКИ ТА АДАПТАЦІЇ ЕКРАНУ ---
     let grid = [];
     let gridCols = 0;
     let gridRows = 0;
@@ -247,6 +237,35 @@ window.addEventListener('DOMContentLoaded', () => {
 
             shapeCaches.push(p);
         }
+    }
+
+    function getSprite(r, g, b, alpha, shapeIndex) {
+        let rq = r & 0xF8;
+        let gq = g & 0xF8;
+        let bq = b & 0xF8;
+        let aq = Math.round(alpha * 10);
+
+        let key = (rq << 20) | (gq << 12) | (bq << 4) | aq;
+        let subCache = spriteCache.get(key);
+
+        if (!subCache) {
+            subCache = new Array(CACHE_STEPS);
+            spriteCache.set(key, subCache);
+        }
+
+        if (!subCache[shapeIndex]) {
+            const off = document.createElement('canvas');
+            off.width = Math.ceil(currentCellSize) + 2;
+            off.height = Math.ceil(currentCellSize) + 2;
+            const octx = off.getContext('2d', { alpha: true });
+
+            octx.fillStyle = `rgba(${rq},${gq},${bq},${aq / 10})`;
+            octx.translate(off.width / 2, off.height / 2);
+            octx.fill(shapeCaches[shapeIndex]);
+
+            subCache[shapeIndex] = off;
+        }
+        return subCache[shapeIndex];
     }
 
     function initGrid() {
@@ -280,6 +299,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const scaleFactor = window.innerWidth / referenceWidth;
 
         currentCellSize = Math.max(3, config.cellSize * scaleFactor);
+        spriteCache.clear();
 
         canvas.width = window.innerWidth * dpr;
         canvas.height = window.innerHeight * dpr;
@@ -294,11 +314,10 @@ window.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', resize);
     resize();
 
-    // --- ЛОГІКА АВТОПІЛОТА (КАМЕРИ) ---
     let camState = 'INIT';
     let stateStartTime = 0;
     let isInitialFly = true;
-    let currentTargetIndex = 0; // Для відстеження поточної локації
+    let currentTargetIndex = 0;
 
     let baseCamX = 0, baseCamY = 0;
     let startCamX = 0, startCamY = 0;
@@ -308,7 +327,6 @@ window.addEventListener('DOMContentLoaded', () => {
     let targetScale = config.defaultMapScale;
 
     let finalCamX = 0, finalCamY = 0;
-
     let lastLogTime = 0;
     let lastCountry = null;
 
@@ -323,7 +341,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
         if (pts.length > 1) {
             let nextIndex;
-            // Вибираємо наступну точку, переконуючись, що вона не дорівнює поточній (уникаємо повторень)
             do {
                 nextIndex = Math.floor(Math.random() * pts.length);
             } while (nextIndex === currentTargetIndex);
@@ -338,20 +355,18 @@ window.addEventListener('DOMContentLoaded', () => {
             targetScale = pt.scale || config.defaultMapScale;
 
         } else if (pts.length === 0) {
-            // Якщо масив пустий, просто блукаємо випадково
             targetCamX = Math.random();
             targetCamY = Math.random() * aspect;
             targetScale = config.defaultMapScale;
         }
 
-        // Розрахунок найкоротшого шляху (перетин Тихого океану)
         let diffX = targetCamX - baseCamX;
         if (diffX > 0.5) targetCamX -= 1.0;
         if (diffX < -0.5) targetCamX += 1.0;
     }
 
-    function easeInOutSine(x) {
-        return -(Math.cos(Math.PI * x) - 1) / 2;
+    function easeInOutCubic(x) {
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
     }
 
     function animate(timestamp) {
@@ -366,14 +381,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
         const aspect = EarthModule.getAspect();
 
-        // МАШИНА СТАНІВ АВТОПІЛОТА
         if (camState === 'INIT') {
             if (EarthModule.isReady()) {
                 currentTargetIndex = 0;
                 let startPoint = config.pointsOfInterest.length > 0 ? config.pointsOfInterest[0] : { lon: 30, lat: 50, scale: config.defaultMapScale };
                 let coords = getCoordsFromLonLat(startPoint.lon, startPoint.lat, aspect);
 
-                // Для першого епічного наближення встановлюємо старт і таргет в одні й ті самі координати (перша країна)
                 baseCamX = coords.x;
                 baseCamY = coords.y;
                 startCamX = coords.x;
@@ -381,7 +394,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 targetCamX = coords.x;
                 targetCamY = coords.y;
 
-                startScale = config.maxZoomOutScale; // Максимальне віддалення при запуску
+                startScale = config.maxZoomOutScale;
                 targetScale = startPoint.scale || config.defaultMapScale;
                 currentMapScale = startScale;
 
@@ -404,25 +417,21 @@ window.addEventListener('DOMContentLoaded', () => {
                     isInitialFly = false;
                 }
 
-                let ease = easeInOutSine(progress);
+                let ease = easeInOutCubic(progress);
 
-                // Позиція змінюється плавно
                 baseCamX = startCamX + (targetCamX - startCamX) * ease;
                 baseCamY = startCamY + (targetCamY - startCamY) * ease;
 
                 let baseZoom = lerp(startScale, targetScale, ease);
 
                 if (isInitialFly) {
-                    // Перший політ - просто плавно і епічно наближаємося (без віддалення)
                     currentMapScale = baseZoom;
                 } else {
-                    // GTA-ефект масштабування при звичайних перельотах
                     let zoomOutFactor = Math.sin(progress * Math.PI);
                     currentMapScale = baseZoom + (zoomOutFactor * config.zoomOutAdd);
                 }
 
             } else if (camState === 'IDLE') {
-                // Якщо в нас лише 1 країна - залишаємося в IDLE назавжди, насолоджуючись виглядом
                 if (config.pointsOfInterest.length > 1 || config.pointsOfInterest.length === 0) {
                     if (timeInState >= config.idleDuration) {
                         camState = 'MOVING';
@@ -442,24 +451,19 @@ window.addEventListener('DOMContentLoaded', () => {
         finalCamX = baseCamX + Math.sin(timestamp * config.wobbleSpeed) * config.wobbleRadius;
         finalCamY = baseCamY + Math.cos(timestamp * config.wobbleSpeed * 0.8) * config.wobbleRadius;
 
-        // Захист від вильоту за полюси з урахуванням динамічного зуму
         const visibleY = gridRows * currentMapScale;
         if (visibleY > aspect) {
-            // Якщо віддалилися так сильно, що видно всю планету, центруємо по вертикалі
             finalCamY = (aspect - visibleY) / 2;
         } else {
             if (finalCamY < 0) finalCamY = 0;
             if (finalCamY + visibleY > aspect) finalCamY = aspect - visibleY;
         }
 
-        // --- УЛЬТРАШВИДКИЙ РЕНДЕР КАРТИ ---
         for (let row = 0; row < gridRows; row++) {
             for (let col = 0; col < gridCols; col++) {
                 const cell = grid[row][col];
 
-                // 1. Оновлення цільових кольорів та висоти
                 if (EarthModule.isReady() && (timestamp - cell.lastUpdate > config.colorUpdateInterval)) {
-
                     const mapX = (col * currentMapScale) + finalCamX - (gridCols * currentMapScale) / 2;
                     const mapY = (row * currentMapScale) + finalCamY - (gridRows * currentMapScale) / 2;
 
@@ -472,7 +476,6 @@ window.addEventListener('DOMContentLoaded', () => {
                     } else {
                         let elev = Math.pow(rawElevation, config.elevationCurve);
                         elev = Math.max(0.01, Math.min(1.0, elev + cell.baseNoise));
-
                         cell.processedElev = elev;
 
                         let colorElev = elev;
@@ -494,23 +497,13 @@ window.addEventListener('DOMContentLoaded', () => {
                         }
                         cell.targetAlpha = config.minAlpha + (alphaElev * (config.maxAlpha - config.minAlpha));
                     }
-
                     cell.lastUpdate = timestamp;
                 }
 
-                // 2. Інтерполяція поточного кольору
                 cell.currentColor[0] = lerp(cell.currentColor[0], cell.targetColor[0], config.colorTransitionSpeed);
                 cell.currentColor[1] = lerp(cell.currentColor[1], cell.targetColor[1], config.colorTransitionSpeed);
                 cell.currentColor[2] = lerp(cell.currentColor[2], cell.targetColor[2], config.colorTransitionSpeed);
                 cell.currentAlpha = lerp(cell.currentAlpha, cell.targetAlpha, config.colorTransitionSpeed);
-
-                // 3. Малювання
-                let r = cell.currentColor[0] | 0;
-                let g = cell.currentColor[1] | 0;
-                let b = cell.currentColor[2] | 0;
-
-                ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-                ctx.globalAlpha = cell.currentAlpha;
 
                 let shapeIndex = 0;
                 if (cell.processedElev > 0) {
@@ -518,47 +511,47 @@ window.addEventListener('DOMContentLoaded', () => {
                     shapeIndex = Math.max(0, Math.min(CACHE_STEPS - 1, shapeIndex));
                 }
 
-                ctx.translate(cell.cx, cell.cy);
-                ctx.fill(shapeCaches[shapeIndex]);
-                ctx.translate(-cell.cx, -cell.cy);
+                let sprite = getSprite(
+                    cell.currentColor[0],
+                    cell.currentColor[1],
+                    cell.currentColor[2],
+                    cell.currentAlpha,
+                    shapeIndex
+                );
+
+                let drawX = Math.round(cell.cx - sprite.width / 2);
+                let drawY = Math.round(cell.cy - sprite.height / 2);
+
+                ctx.drawImage(sprite, drawX, drawY);
             }
         }
 
-        ctx.globalAlpha = 1.0;
+        // if (EarthModule.isReady() && timestamp - lastLogTime > 5000 && camState === 'IDLE') {
+        //     lastLogTime = timestamp;
 
-        // --- МОДУЛЬ ГЕОЛОКАЦІЇ ТА ЛОГУВАННЯ ---
-        if (EarthModule.isReady() && timestamp - lastLogTime > 5000 && camState === 'IDLE') {
-            lastLogTime = timestamp;
+        //     let normX = finalCamX - Math.floor(finalCamX);
+        //     if (normX < 0) normX += 1.0;
+        //     const lon = normX * 360 - 180;
 
-            let normX = finalCamX - Math.floor(finalCamX);
-            if (normX < 0) normX += 1.0;
-            const lon = normX * 360 - 180;
+        //     let lat = 90 - (finalCamY / aspect) * 180;
+        //     lat = Math.max(-90, Math.min(90, lat));
 
-            let lat = 90 - (finalCamY / aspect) * 180;
-            lat = Math.max(-90, Math.min(90, lat));
-
-            fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=3&accept-language=uk`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && data.address && data.address.country) {
-                        if (lastCountry !== data.address.country) {
-                            console.log(`Зависли над: %c${data.address.country}`, 'color: #ff0000; font-weight: bold;');
-                            lastCountry = data.address.country;
-                        }
-                    } else {
-                        if (lastCountry !== "Ocean") {
-                            console.log(`Насолоджуємось краєвидами океану...`);
-                            lastCountry = "Ocean";
-                        }
-                    }
-                })
-                .catch(err => { });
-        }
+        //     fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=3&accept-language=uk`)
+        //         .then(res => res.json())
+        //         .then(data => {
+        //             if (data && data.address && data.address.country) {
+        //                 if (lastCountry !== data.address.country) {
+        //                     console.log(`Зависли над: %c${data.address.country}`, 'color: #ff0000; font-weight: bold;');
+        //                     lastCountry = data.address.country;
+        //                 }
+        //             }
+        //         })
+        //         .catch(err => { });
+        // }
 
         requestAnimationFrame(animate);
     }
 
-    // Вкажіть тут назву вашого локального файлу з картою
     const localMapFile = './earth_map.png';
 
     EarthModule.load(localMapFile, function () {

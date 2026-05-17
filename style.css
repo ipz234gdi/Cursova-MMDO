@@ -35,6 +35,7 @@ body {
     height: 100%;
     z-index: -1;
     opacity: 0.6;
+    image-rendering: pixelated;
     /* filter: blur(10px); */
 }
 
