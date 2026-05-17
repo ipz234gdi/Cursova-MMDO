@@ -1,56 +1,44 @@
 window.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('bgCanvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
 
     const config = {
-        cellSize: 24,        // Розмір клітинки
-        padding: 1,          // Відступ між зірками
-        bgColor: '#ffffff',  // Глибокий колір фону
-        shapeBend: 0.9,      // Впуклість ромба (0.0 = зірка, 0.9 = коло)
+        cellSize: 20,
+        padding: 1,
+        bgColor: '#ffffff',
+        shapeBend: 0.9,
 
-        // --- НАЛАШТУВАННЯ КАРТИ ТА ПАЛІТРИ ---
-        palette: ['#000000', '#00a2ff', '#34e65a', '#f7e81e', '#f75110'], // Палітра висот
-        waterColor: '#ffffff', // Колір для океанів
+        palette: ['#000000', '#00a2ff', '#34e65a', '#f7e81e', '#f75110'],
+        waterColor: '#ffffff',
 
-        defaultMapScale: 0.0007, // Стандартний масштаб, якщо не вказаний для країни
-        zoomOutAdd: 0.0009,       // GTA-ефект: наскільки сильно віддалятись під час перельоту
-        maxZoomOutScale: 0.003,   // Масштаб при першому старті сайту (найбільше віддалення)
-        waterThreshold: 12,      // Поріг рівня моря (0-255). Зменшено, щоб не зрізати низовини
+        defaultMapScale: 0.0007,
+        zoomOutAdd: 0.0009,
+        maxZoomOutScale: 0.003,
+        waterThreshold: 12,
+        mapMaxBrightness: 100,
 
-        mapMaxBrightness: 120,
+        elevationCurve: 0.99,
+        noiseAmount: 0.08,
 
-        // --- НОВІ ФІЧІ (ДЕТАЛІЗАЦІЯ ТА ДИНАМІКА СУШІ) ---
-        elevationCurve: 0.9,    // Логарифмічний розподіл (менше 1.0 = виділяє більше кольорів для низовин)
-        noiseAmount: 0.08,      // Мікро-шум/Мозаїка (0.0 до 0.2)
+        dynamicSize: true,
+        minSizeRatio: 0.9,
+        dynamicBend: true,
+        minBend: 0.0,
+        maxBend: 0.9,
 
-        dynamicSize: true,      // Чи змінювати розмір від висоти
-        minSizeRatio: 0.8,      // Розмір найнижчої точки суші (20% від розміру клітинки)
+        colorUpdateInterval: 10,
+        colorTransitionSpeed: 0.8,
+        colorSteps: 15,
+        alphaSteps: 3,
+        minAlpha: 0.6,
+        maxAlpha: 1.0,
+        waterAlpha: 0.3,
 
-        dynamicBend: true,      // Чи змінювати форму від висоти
-        minBend: 0.0,           // Форма низовини (0.9 = коло)
-        maxBend: 0.9,           // Форма гір (0.0 = гостра зірка)
+        moveDuration: 15000,
+        idleDuration: 20000,
+        wobbleSpeed: 0.0001,
+        wobbleRadius: 0.002,
 
-        // --- НАЛАШТУВАННЯ ЗГЛАДЖУВАННЯ ТА ОПТИМІЗАЦІЇ ---
-        smoothingLevel: 2,          // Параметр збережено, але двигун тепер використовує SAT (ідеальне згладжування O(1))
-
-        colorUpdateInterval: 30,     // Як часто зірка "дивиться" на карту (в мілісекундах).
-        colorTransitionSpeed: 0.1,   // Швидкість плавного перетікання кольору (від 0.01 до 1.0)
-
-        // --- СТУПЕНІ ЗМІНИ КОЛЬОРУ (Квантування) ---
-        colorSteps: 50,       // Ступені зміни кольору (0 = плавний градієнт)
-        alphaSteps: 3,       // Ступені зміни прозорості
-
-        minAlpha: 0.6,       // Прозорість найнижчої точки суші (низовини)
-        maxAlpha: 1.0,       // Прозорість найвищої точки (гори)
-        waterAlpha: 0.3,     // Прозорість зірок води
-
-        // --- РОЗУМНЕ ПЕРЕМІЩЕННЯ КАМЕРИ (АВТОПІЛОТ) ---
-        moveDuration: 15000,     // Час перельоту між містами (15 сек)
-        idleDuration: 30000,     // Час зупинки на локації (30 сек)
-        wobbleSpeed: 0.0001,    // Швидкість мікро-руху ("дихання") під час зупинки
-        wobbleRadius: 0.002,     // Радіус цього мікро-руху
-
-        // Цікаві локації для автопілота (довгота, широта, масштаб)
         pointsOfInterest: [
             { name: "Київ, Україна", lon: 30.52, lat: 50.45, scale: 0.0007 },
             { name: "Гора Еверест", lon: 86.92, lat: 27.98 },
@@ -65,502 +53,364 @@ window.addEventListener('DOMContentLoaded', () => {
         ]
     };
 
-    let currentCellSize = config.cellSize;
-    let currentMapScale = config.defaultMapScale;
-
-    const CACHE_STEPS = 20;
-    let shapeCaches = [];
-    let spriteCache = new Map();
+    // ─── УТИЛІТИ ──────────────────────────────────────────────────────────────
 
     function hexToRgb(hex) {
-        let r = 0, g = 0, b = 0;
-        if (hex.length === 4) {
-            r = parseInt(hex[1] + hex[1], 16); g = parseInt(hex[2] + hex[2], 16); b = parseInt(hex[3] + hex[3], 16);
-        } else if (hex.length === 7) {
-            r = parseInt(hex.substring(1, 3), 16); g = parseInt(hex.substring(3, 5), 16); b = parseInt(hex.substring(5, 7), 16);
-        }
-        return [r, g, b];
+        const n = parseInt(hex.slice(1), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
     }
 
     const parsedPalette = config.palette.map(hexToRgb);
-    const parsedWaterColor = hexToRgb(config.waterColor);
+    const [wR, wG, wB] = hexToRgb(config.waterColor);
+    const waterSameAsBg = config.waterColor.toLowerCase() === config.bgColor.toLowerCase();
 
-    function lerp(start, end, amt) {
-        return (1 - amt) * start + amt * end;
-    }
-
-    function interpolateColorRGB(color1, color2, factor) {
-        return [
-            Math.round(lerp(color1[0], color2[0], factor)),
-            Math.round(lerp(color1[1], color2[1], factor)),
-            Math.round(lerp(color1[2], color2[2], factor))
-        ];
-    }
-
-    const EarthModule = (function () {
-        let imageData = null;
-        let sumAreaTable = null;
-        let imgWidth = 0;
-        let imgHeight = 0;
-        let isLoaded = false;
-
-        function getSum(x1, y1, x2, y2) {
-            x1 = Math.max(0, Math.min(imgWidth - 1, Math.round(x1)));
-            y1 = Math.max(0, Math.min(imgHeight - 1, Math.round(y1)));
-            x2 = Math.max(0, Math.min(imgWidth - 1, Math.round(x2)));
-            y2 = Math.max(0, Math.min(imgHeight - 1, Math.round(y2)));
-
-            if (x1 > x2) { let t = x1; x1 = x2; x2 = t; }
-            if (y1 > y2) { let t = y1; y1 = y2; y2 = t; }
-
-            let a = sumAreaTable[y2 * imgWidth + x2];
-            let b = (x1 > 0) ? sumAreaTable[y2 * imgWidth + (x1 - 1)] : 0;
-            let c = (y1 > 0) ? sumAreaTable[(y1 - 1) * imgWidth + x2] : 0;
-            let d = (x1 > 0 && y1 > 0) ? sumAreaTable[(y1 - 1) * imgWidth + (x1 - 1)] : 0;
-
-            return a - b - c + d;
+    const CS = Math.max(1, config.colorSteps);
+    const CLR = new Uint8Array(CS), CLG = new Uint8Array(CS), CLB = new Uint8Array(CS);
+    {
+        const pmx = parsedPalette.length - 1;
+        for (let s = 0; s < CS; s++) {
+            const t = (CS > 1 ? s / (CS - 1) : 0) * pmx;
+            const i1 = t | 0, i2 = Math.min(i1 + 1, pmx), f = t - i1;
+            const p1 = parsedPalette[i1], p2 = parsedPalette[i2];
+            CLR[s] = (p1[0] + (p2[0] - p1[0]) * f + 0.5) | 0;
+            CLG[s] = (p1[1] + (p2[1] - p1[1]) * f + 0.5) | 0;
+            CLB[s] = (p1[2] + (p2[2] - p1[2]) * f + 0.5) | 0;
         }
+    }
+    const AS = Math.max(1, config.alphaSteps);
+    const ALUT = new Float32Array(AS);
+    for (let s = 0; s < AS; s++)
+        ALUT[s] = config.minAlpha + (AS > 1 ? s / (AS - 1) : 0) * (config.maxAlpha - config.minAlpha);
 
-        function getWrappedAreaSum(x1, y1, w, h) {
-            let ix1 = Math.round(x1);
-            let iy1 = Math.round(y1);
-            let iw = Math.max(1, Math.round(w));
-            let ih = Math.max(1, Math.round(h));
+    const TS = config.colorTransitionSpeed;
+    const ITS = 1 - TS;
+    const wA = config.waterAlpha;
+    const EC = config.elevationCurve;
+    const CI = config.colorUpdateInterval;
 
-            let iy2 = iy1 + ih - 1;
 
-            ix1 = ((ix1 % imgWidth) + imgWidth) % imgWidth;
-            let rx2 = ix1 + iw - 1;
-
-            if (rx2 >= imgWidth) {
-                let sum1 = getSum(ix1, iy1, imgWidth - 1, iy2);
-                let sum2 = getSum(0, iy1, rx2 - imgWidth, iy2);
-                return { sum: sum1 + sum2, area: iw * ih };
-            } else {
-                return { sum: getSum(ix1, iy1, rx2, iy2), area: iw * ih };
-            }
-        }
-
-        return {
-            load: function (url, callback) {
-                const img = new Image();
-                img.crossOrigin = "Anonymous";
-
-                img.onload = function () {
-                    const offscreen = document.createElement('canvas');
-                    offscreen.width = img.width;
-                    offscreen.height = img.height;
-                    const offCtx = offscreen.getContext('2d', { willReadFrequently: true });
-                    offCtx.drawImage(img, 0, 0);
-
-                    imageData = offCtx.getImageData(0, 0, img.width, img.height).data;
-                    imgWidth = img.width;
-                    imgHeight = img.height;
-
-                    sumAreaTable = new Float64Array(imgWidth * imgHeight);
-                    for (let y = 0; y < imgHeight; y++) {
-                        for (let x = 0; x < imgWidth; x++) {
-                            let val = imageData[(y * imgWidth + x) * 4];
-                            let sum = val;
-                            if (x > 0) sum += sumAreaTable[y * imgWidth + (x - 1)];
-                            if (y > 0) sum += sumAreaTable[(y - 1) * imgWidth + x];
-                            if (x > 0 && y > 0) sum -= sumAreaTable[(y - 1) * imgWidth + (x - 1)];
-                            sumAreaTable[y * imgWidth + x] = sum;
-                        }
-                    }
-
-                    isLoaded = true;
-                    if (callback) callback();
-                };
-
-                img.onerror = function () {
-                    const loadingScreen = document.getElementById('loading');
-                    if (loadingScreen) {
-                        loadingScreen.style.color = '#ff0000';
-                        loadingScreen.innerHTML = `Не вдалося завантажити карту.<br>Переконайтеся, що файл з назвою <b>${url}</b> знаходиться у тій самій папці.`;
-                    }
-                };
-
-                img.src = url;
-            },
-            getAspect: function () {
-                if (!isLoaded || imgWidth === 0) return 0.5;
-                return imgHeight / imgWidth;
-            },
-            isReady: function () { return isLoaded; },
-
-            getElevation: function (x, y) {
-                if (!isLoaded) return 0;
-
-                let nx = x - Math.floor(x);
-                if (nx < 0) nx += 1.0;
-
-                let realX = nx * imgWidth;
-                let realY = y * imgWidth;
-
-                let footprint = currentMapScale * imgWidth;
-                let startX = realX - footprint / 2;
-                let startY = realY - footprint / 2;
-
-                let { sum, area } = getWrappedAreaSum(startX, startY, footprint, footprint);
-                let finalBrightness = area > 0 ? sum / area : 0;
-
-                if (finalBrightness <= config.waterThreshold) return 0;
-
-                let mapped = (finalBrightness - config.waterThreshold) / (config.mapMaxBrightness - config.waterThreshold);
-                return Math.max(0, Math.min(1, mapped));
-            }
-        };
-    })();
-
-    let grid = [];
-    let gridCols = 0;
-    let gridRows = 0;
+    const CACHE_STEPS = 20;
+    const CS1 = CACHE_STEPS - 1;
+    let shapeCaches = [];
+    const spriteCache = new Map();
+    let currentCellSize = config.cellSize;
+    let currentMapScale = config.defaultMapScale;
+    const hasOffscreen = typeof OffscreenCanvas !== 'undefined';
 
     function buildShapePath() {
         shapeCaches = [];
         for (let i = 0; i < CACHE_STEPS; i++) {
-            let elev = i / (CACHE_STEPS - 1);
-            let p = new Path2D();
-
-            let sizeRatio = config.dynamicSize ? lerp(config.minSizeRatio, 1.0, elev) : 1.0;
-            let currentRadius = Math.max(1, (currentCellSize * sizeRatio - config.padding)) / 2;
-
-            let bend = config.dynamicBend ? lerp(config.minBend, config.maxBend, elev) : config.shapeBend;
-
-            p.moveTo(0, -currentRadius);
-            p.quadraticCurveTo(currentRadius * bend, -currentRadius * bend, currentRadius, 0);
-            p.quadraticCurveTo(currentRadius * bend, currentRadius * bend, 0, currentRadius);
-            p.quadraticCurveTo(-currentRadius * bend, currentRadius * bend, -currentRadius, 0);
-            p.quadraticCurveTo(-currentRadius * bend, -currentRadius * bend, 0, -currentRadius);
+            const elev = i / CS1;
+            const p = new Path2D();
+            const sizeRatio = config.dynamicSize
+                ? config.minSizeRatio + (1 - config.minSizeRatio) * elev : 1;
+            const r = Math.max(1, (currentCellSize * sizeRatio - config.padding)) / 2;
+            const bend = config.dynamicBend
+                ? config.minBend + (config.maxBend - config.minBend) * elev
+                : config.shapeBend;
+            p.moveTo(0, -r);
+            p.quadraticCurveTo(r * bend, -r * bend, r, 0);
+            p.quadraticCurveTo(r * bend, r * bend, 0, r);
+            p.quadraticCurveTo(-r * bend, r * bend, -r, 0);
+            p.quadraticCurveTo(-r * bend, -r * bend, 0, -r);
             p.closePath();
-
             shapeCaches.push(p);
         }
     }
 
-    function getSprite(r, g, b, alpha, shapeIndex) {
-        let rq = r & 0xF8;
-        let gq = g & 0xF8;
-        let bq = b & 0xF8;
-        let aq = Math.round(alpha * 10);
+    function getSprite(r, g, b, alpha, si) {
+        const rq = r & 0xF8, gq = g & 0xF8, bq = b & 0xF8;
+        const aq = (alpha * 10 + 0.5) | 0;
+        const key = ((rq >> 3) << 14) | ((gq >> 3) << 9) | ((bq >> 3) << 4) | aq;
 
-        let key = (rq << 20) | (gq << 12) | (bq << 4) | aq;
-        let subCache = spriteCache.get(key);
+        let sub = spriteCache.get(key);
+        if (!sub) { sub = new Array(CACHE_STEPS); spriteCache.set(key, sub); }
 
-        if (!subCache) {
-            subCache = new Array(CACHE_STEPS);
-            spriteCache.set(key, subCache);
-        }
-
-        if (!subCache[shapeIndex]) {
-            const off = document.createElement('canvas');
-            off.width = Math.ceil(currentCellSize) + 2;
-            off.height = Math.ceil(currentCellSize) + 2;
-            const octx = off.getContext('2d', { alpha: true });
-
+        let sprite = sub[si];
+        if (!sprite) {
+            const sz = (currentCellSize + 2.5) | 0;
+            let oc, octx;
+            if (hasOffscreen) {
+                oc = new OffscreenCanvas(sz, sz);
+                octx = oc.getContext('2d');
+            } else {
+                oc = document.createElement('canvas');
+                oc.width = oc.height = sz;
+                octx = oc.getContext('2d');
+            }
             octx.fillStyle = `rgba(${rq},${gq},${bq},${aq / 10})`;
-            octx.translate(off.width / 2, off.height / 2);
-            octx.fill(shapeCaches[shapeIndex]);
-
-            subCache[shapeIndex] = off;
+            octx.translate(sz / 2, sz / 2);
+            octx.fill(shapeCaches[si]);
+            sub[si] = sprite = oc;
         }
-        return subCache[shapeIndex];
+        return sprite;
     }
+
+    const STRIDE = 13;
+    const I_CX = 0, I_CY = 1,
+        I_CR = 2, I_CG = 3, I_CB = 4, I_CA = 5,
+        I_TR = 6, I_TG = 7, I_TB = 8, I_TA = 9,
+        I_EL = 10, I_NO = 11, I_LU = 12;
+
+    let gridData = null, gridCols = 0, gridRows = 0;
 
     function initGrid() {
         gridCols = Math.ceil(window.innerWidth / currentCellSize);
         gridRows = Math.ceil(window.innerHeight / currentCellSize);
-        grid = [];
-
+        gridData = new Float32Array(gridCols * gridRows * STRIDE);
+        const half = currentCellSize / 2;
+        const noiseAmt = config.noiseAmount;
         for (let row = 0; row < gridRows; row++) {
-            let rArray = [];
+            const cy = row * currentCellSize + half;
             for (let col = 0; col < gridCols; col++) {
-                rArray.push({
-                    cx: col * currentCellSize + currentCellSize / 2,
-                    cy: row * currentCellSize + currentCellSize / 2,
-                    currentColor: [...parsedWaterColor],
-                    targetColor: [...parsedWaterColor],
-                    currentAlpha: config.waterAlpha,
-                    targetAlpha: config.waterAlpha,
-
-                    processedElev: 0,
-                    baseNoise: (Math.random() - 0.5) * config.noiseAmount,
-                    lastUpdate: Math.random() * config.colorUpdateInterval
-                });
+                const b = (row * gridCols + col) * STRIDE;
+                gridData[b + I_CX] = col * currentCellSize + half;
+                gridData[b + I_CY] = cy;
+                gridData[b + I_CR] = gridData[b + I_TR] = wR;
+                gridData[b + I_CG] = gridData[b + I_TG] = wG;
+                gridData[b + I_CB] = gridData[b + I_TB] = wB;
+                gridData[b + I_CA] = gridData[b + I_TA] = wA;
+                gridData[b + I_EL] = 0;
+                gridData[b + I_NO] = (Math.random() - 0.5) * noiseAmt;
+                gridData[b + I_LU] = Math.random() * CI;
             }
-            grid.push(rArray);
         }
     }
 
     function resize() {
-        const dpr = window.devicePixelRatio || 1;
-        const referenceWidth = 1920;
-        const scaleFactor = window.innerWidth / referenceWidth;
-
-        currentCellSize = Math.max(3, config.cellSize * scaleFactor);
+        currentCellSize = Math.max(3, config.cellSize * window.innerWidth / 1920);
         spriteCache.clear();
-
+        const dpr = window.devicePixelRatio || 1;
         canvas.width = window.innerWidth * dpr;
         canvas.height = window.innerHeight * dpr;
-
-        canvas.style.width = `${window.innerWidth}px`;
-        canvas.style.height = `${window.innerHeight}px`;
-
+        canvas.style.cssText = `width:${window.innerWidth}px;height:${window.innerHeight}px`;
         buildShapePath();
         initGrid();
     }
-
     window.addEventListener('resize', resize);
     resize();
 
-    let camState = 'INIT';
-    let stateStartTime = 0;
-    let isInitialFly = true;
-    let currentTargetIndex = 0;
+    const EarthModule = (() => {
+        let sat = null;
+        let iW = 0, iH = 0, loaded = false;
+        const wt = config.waterThreshold, mb = config.mapMaxBrightness;
 
-    let baseCamX = 0, baseCamY = 0;
-    let startCamX = 0, startCamY = 0;
+        function sat2D(x1, y1, x2, y2) {
+            x1 = Math.max(0, Math.min(iW - 1, (x1 + 0.5) | 0));
+            y1 = Math.max(0, Math.min(iH - 1, (y1 + 0.5) | 0));
+            x2 = Math.max(0, Math.min(iW - 1, (x2 + 0.5) | 0));
+            y2 = Math.max(0, Math.min(iH - 1, (y2 + 0.5) | 0));
+            if (x1 > x2) { const t = x1; x1 = x2; x2 = t; }
+            if (y1 > y2) { const t = y1; y1 = y2; y2 = t; }
+            return sat[y2 * iW + x2]
+                - (x1 > 0 ? sat[y2 * iW + x1 - 1] : 0)
+                - (y1 > 0 ? sat[(y1 - 1) * iW + x2] : 0)
+                + (x1 > 0 && y1 > 0 ? sat[(y1 - 1) * iW + x1 - 1] : 0);
+        }
+
+        return {
+            load(url, cb) {
+                const img = new Image();
+                img.crossOrigin = 'Anonymous';
+                img.onload = () => {
+                    const oc = document.createElement('canvas');
+                    oc.width = img.width; oc.height = img.height;
+                    const octx = oc.getContext('2d', { willReadFrequently: true });
+                    octx.drawImage(img, 0, 0);
+                    const px = octx.getImageData(0, 0, img.width, img.height).data;
+                    iW = img.width; iH = img.height;
+                    sat = new Float64Array(iW * iH);
+                    for (let y = 0; y < iH; y++) {
+                        for (let x = 0; x < iW; x++) {
+                            const i = y * iW + x;
+                            let v = px[i * 4];
+                            if (x > 0) v += sat[i - 1];
+                            if (y > 0) v += sat[i - iW];
+                            if (x > 0 && y > 0) v -= sat[i - iW - 1];
+                            sat[i] = v;
+                        }
+                    }
+                    loaded = true;
+                    if (cb) cb();
+                };
+                img.onerror = () => {
+                    const el = document.getElementById('loading');
+                    if (el) { el.style.color = '#f00'; el.innerHTML = `Не вдалося завантажити карту: <b>${url}</b>`; }
+                };
+                img.src = url;
+            },
+            getAspect() { return loaded && iW ? iH / iW : 0.5; },
+            isReady() { return loaded; },
+
+            getElevation(x, y) {
+                if (!loaded) return 0;
+                let nx = x - (x | 0); if (nx < 0) nx += 1;
+                const fp = Math.max(1, (currentMapScale * iW + 0.5) | 0);
+                const rx = (nx * iW + 0.5) | 0;
+                const ry = (y * iW + 0.5) | 0;
+                const sx = rx - (fp >> 1);
+                const sy = ry - (fp >> 1);
+                const iy2 = Math.min(iH - 1, sy + fp - 1);
+                const ix1 = ((sx % iW) + iW) % iW;
+                const rx2 = ix1 + fp - 1;
+                const area = fp * fp;
+                const sum = rx2 >= iW
+                    ? sat2D(ix1, sy, iW - 1, iy2) + sat2D(0, sy, rx2 - iW, iy2)
+                    : sat2D(ix1, sy, rx2, iy2);
+                const bright = sum / area;
+                if (bright <= wt) return 0;
+                return Math.max(0, Math.min(1, (bright - wt) / (mb - wt)));
+            }
+        };
+    })();
+
+    // ─── КАМЕРА ───────────────────────────────────────────────────────────────
+
+    let camState = 'INIT', stateStartTime = 0, isInitialFly = true, currentTargetIndex = 0;
+    let baseCamX = 0, baseCamY = 0, startCamX = 0, startCamY = 0;
     let targetCamX = 0, targetCamY = 0;
+    let startScale = config.defaultMapScale, targetScale = config.defaultMapScale;
 
-    let startScale = config.defaultMapScale;
-    let targetScale = config.defaultMapScale;
+    function lonLatToXY(lon, lat, aspect) {
+        return { x: (lon + 180) / 360, y: (90 - lat) / 180 * aspect };
+    }
 
-    let finalCamX = 0, finalCamY = 0;
-    let lastLogTime = 0;
-    let lastCountry = null;
-
-    function getCoordsFromLonLat(lon, lat, aspect) {
-        let x = (lon + 180) / 360;
-        let y = (90 - lat) / 180 * aspect;
-        return { x, y };
+    function easeInOutCubic(x) {
+        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(2 - 2 * x, 3) / 2;
     }
 
     function pickNextTarget(aspect) {
         const pts = config.pointsOfInterest;
-
-        if (pts.length > 1) {
-            let nextIndex;
-            do {
-                nextIndex = Math.floor(Math.random() * pts.length);
-            } while (nextIndex === currentTargetIndex);
-
-            currentTargetIndex = nextIndex;
-            const pt = pts[currentTargetIndex];
-
-            console.log(`Зміна курсу! Наступна зупинка: ${pt.name}`);
-            const coords = getCoordsFromLonLat(pt.lon, pt.lat, aspect);
-            targetCamX = coords.x;
-            targetCamY = coords.y;
-            targetScale = pt.scale || config.defaultMapScale;
-
-        } else if (pts.length === 0) {
-            targetCamX = Math.random();
-            targetCamY = Math.random() * aspect;
-            targetScale = config.defaultMapScale;
+        if (!pts.length) {
+            targetCamX = Math.random(); targetCamY = Math.random() * aspect;
+            targetScale = config.defaultMapScale; return;
         }
-
-        let diffX = targetCamX - baseCamX;
-        if (diffX > 0.5) targetCamX -= 1.0;
-        if (diffX < -0.5) targetCamX += 1.0;
+        let ni;
+        do { ni = (Math.random() * pts.length) | 0; } while (ni === currentTargetIndex && pts.length > 1);
+        currentTargetIndex = ni;
+        const pt = pts[ni];
+        console.log(`→ ${pt.name}`);
+        const c = lonLatToXY(pt.lon, pt.lat, aspect);
+        targetCamX = c.x; targetCamY = c.y;
+        targetScale = pt.scale || config.defaultMapScale;
+        const dx = targetCamX - baseCamX;
+        if (dx > 0.5) targetCamX -= 1;
+        else if (dx < -0.5) targetCamX += 1;
     }
 
-    function easeInOutCubic(x) {
-        return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-    }
+    // ─── ГОЛОВНИЙ ЦИКЛ ────────────────────────────────────────────────────────
 
-    function animate(timestamp) {
-        if (!timestamp) timestamp = 0;
-        const w = window.innerWidth;
-        const h = window.innerHeight;
+    function animate(ts) {
+        if (!ts) ts = 0;
+        const W = window.innerWidth, H = window.innerHeight;
         const dpr = window.devicePixelRatio || 1;
+        const aspect = EarthModule.getAspect();
 
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.fillStyle = config.bgColor;
-        ctx.fillRect(0, 0, w, h);
-
-        const aspect = EarthModule.getAspect();
+        ctx.fillRect(0, 0, W, H);
 
         if (camState === 'INIT') {
             if (EarthModule.isReady()) {
                 currentTargetIndex = 0;
-                let startPoint = config.pointsOfInterest.length > 0 ? config.pointsOfInterest[0] : { lon: 30, lat: 50, scale: config.defaultMapScale };
-                let coords = getCoordsFromLonLat(startPoint.lon, startPoint.lat, aspect);
-
-                baseCamX = coords.x;
-                baseCamY = coords.y;
-                startCamX = coords.x;
-                startCamY = coords.y;
-                targetCamX = coords.x;
-                targetCamY = coords.y;
-
+                const sp = config.pointsOfInterest[0] || { lon: 30, lat: 50 };
+                const c = lonLatToXY(sp.lon, sp.lat, aspect);
+                baseCamX = startCamX = targetCamX = c.x;
+                baseCamY = startCamY = targetCamY = c.y;
                 startScale = config.maxZoomOutScale;
-                targetScale = startPoint.scale || config.defaultMapScale;
+                targetScale = sp.scale || config.defaultMapScale;
                 currentMapScale = startScale;
-
                 isInitialFly = true;
                 camState = 'MOVING';
-                stateStartTime = timestamp;
+                stateStartTime = ts;
             }
         } else {
-            let timeInState = timestamp - stateStartTime;
-
+            const dt = ts - stateStartTime;
             if (camState === 'MOVING') {
-                let progress = timeInState / config.moveDuration;
-                if (progress >= 1.0) {
-                    progress = 1.0;
-                    camState = 'IDLE';
-                    stateStartTime = timestamp;
-                    baseCamX = targetCamX;
-                    baseCamY = targetCamY;
-                    currentMapScale = targetScale;
-                    isInitialFly = false;
-                }
-
-                let ease = easeInOutCubic(progress);
-
-                baseCamX = startCamX + (targetCamX - startCamX) * ease;
-                baseCamY = startCamY + (targetCamY - startCamY) * ease;
-
-                let baseZoom = lerp(startScale, targetScale, ease);
-
-                if (isInitialFly) {
-                    currentMapScale = baseZoom;
+                let p = Math.min(1, dt / config.moveDuration);
+                if (p >= 1) {
+                    camState = 'IDLE'; stateStartTime = ts;
+                    baseCamX = targetCamX; baseCamY = targetCamY;
+                    currentMapScale = targetScale; isInitialFly = false;
                 } else {
-                    let zoomOutFactor = Math.sin(progress * Math.PI);
-                    currentMapScale = baseZoom + (zoomOutFactor * config.zoomOutAdd);
+                    const ease = easeInOutCubic(p);
+                    baseCamX = startCamX + (targetCamX - startCamX) * ease;
+                    baseCamY = startCamY + (targetCamY - startCamY) * ease;
+                    const bz = startScale + (targetScale - startScale) * ease;
+                    currentMapScale = isInitialFly ? bz : bz + Math.sin(p * Math.PI) * config.zoomOutAdd;
                 }
-
-            } else if (camState === 'IDLE') {
-                if (config.pointsOfInterest.length > 1 || config.pointsOfInterest.length === 0) {
-                    if (timeInState >= config.idleDuration) {
-                        camState = 'MOVING';
-                        stateStartTime = timestamp;
-
-                        baseCamX = baseCamX - Math.floor(baseCamX);
-                        startCamX = baseCamX;
-                        startCamY = baseCamY;
-                        startScale = currentMapScale;
-
-                        pickNextTarget(aspect);
-                    }
-                }
+            } else if (camState === 'IDLE' && config.pointsOfInterest.length !== 1 && dt >= config.idleDuration) {
+                camState = 'MOVING'; stateStartTime = ts;
+                baseCamX -= Math.floor(baseCamX);
+                startCamX = baseCamX; startCamY = baseCamY; startScale = currentMapScale;
+                pickNextTarget(aspect);
             }
         }
 
-        finalCamX = baseCamX + Math.sin(timestamp * config.wobbleSpeed) * config.wobbleRadius;
-        finalCamY = baseCamY + Math.cos(timestamp * config.wobbleSpeed * 0.8) * config.wobbleRadius;
+        let finalCamX = baseCamX + Math.sin(ts * config.wobbleSpeed) * config.wobbleRadius;
+        let finalCamY = baseCamY + Math.cos(ts * config.wobbleSpeed * 0.8) * config.wobbleRadius;
 
-        const visibleY = gridRows * currentMapScale;
-        if (visibleY > aspect) {
-            finalCamY = (aspect - visibleY) / 2;
-        } else {
-            if (finalCamY < 0) finalCamY = 0;
-            if (finalCamY + visibleY > aspect) finalCamY = aspect - visibleY;
-        }
+        const visY = gridRows * currentMapScale;
+        if (visY > aspect) finalCamY = (aspect - visY) * 0.5;
+        else finalCamY = Math.max(0, Math.min(aspect - visY, finalCamY));
+
+        const gcm = currentMapScale;
+        const halfCX = gridCols * gcm * 0.5;
+        const halfCY = gridRows * gcm * 0.5;
+        const earthOK = EarthModule.isReady();
+        const sprSz = (currentCellSize + 2.5) | 0;
+        const sprHalf = sprSz * 0.5;
 
         for (let row = 0; row < gridRows; row++) {
+            const mapY = row * gcm + finalCamY - halfCY;
+            const rowOff = row * gridCols;
+
             for (let col = 0; col < gridCols; col++) {
-                const cell = grid[row][col];
+                const b = (rowOff + col) * STRIDE;
 
-                if (EarthModule.isReady() && (timestamp - cell.lastUpdate > config.colorUpdateInterval)) {
-                    const mapX = (col * currentMapScale) + finalCamX - (gridCols * currentMapScale) / 2;
-                    const mapY = (row * currentMapScale) + finalCamY - (gridRows * currentMapScale) / 2;
-
-                    let rawElevation = EarthModule.getElevation(mapX, mapY);
-
-                    if (rawElevation === 0) {
-                        cell.targetColor = [...parsedWaterColor];
-                        cell.targetAlpha = config.waterAlpha;
-                        cell.processedElev = 0;
+                if (earthOK && ts - gridData[b + I_LU] > CI) {
+                    const raw = EarthModule.getElevation(col * gcm + finalCamX - halfCX, mapY);
+                    if (raw === 0) {
+                        gridData[b + I_TR] = wR; gridData[b + I_TG] = wG; gridData[b + I_TB] = wB;
+                        gridData[b + I_TA] = wA; gridData[b + I_EL] = 0;
                     } else {
-                        let elev = Math.pow(rawElevation, config.elevationCurve);
-                        elev = Math.max(0.01, Math.min(1.0, elev + cell.baseNoise));
-                        cell.processedElev = elev;
-
-                        let colorElev = elev;
-                        if (config.colorSteps > 0) {
-                            colorElev = Math.min(Math.floor(colorElev * config.colorSteps), config.colorSteps - 1) / (config.colorSteps > 1 ? config.colorSteps - 1 : 1);
-                        }
-
-                        const maxIdx = parsedPalette.length - 1;
-                        const scaledProgress = colorElev * maxIdx;
-                        const index1 = Math.floor(scaledProgress);
-                        const index2 = Math.min(index1 + 1, maxIdx);
-                        const factor = scaledProgress - index1;
-
-                        cell.targetColor = interpolateColorRGB(parsedPalette[index1], parsedPalette[index2], factor);
-
-                        let alphaElev = elev;
-                        if (config.alphaSteps > 0) {
-                            alphaElev = Math.min(Math.floor(alphaElev * config.alphaSteps), config.alphaSteps - 1) / (config.alphaSteps > 1 ? config.alphaSteps - 1 : 1);
-                        }
-                        cell.targetAlpha = config.minAlpha + (alphaElev * (config.maxAlpha - config.minAlpha));
+                        let e = Math.pow(raw, EC);
+                        e = Math.max(0.01, Math.min(1, e + gridData[b + I_NO]));
+                        gridData[b + I_EL] = e;
+                        const si = Math.min((e * CS + 0.5) | 0, CS - 1);
+                        gridData[b + I_TR] = CLR[si]; gridData[b + I_TG] = CLG[si]; gridData[b + I_TB] = CLB[si];
+                        const ai = Math.min((e * AS + 0.5) | 0, AS - 1);
+                        gridData[b + I_TA] = ALUT[ai];
                     }
-                    cell.lastUpdate = timestamp;
+                    gridData[b + I_LU] = ts;
                 }
 
-                cell.currentColor[0] = lerp(cell.currentColor[0], cell.targetColor[0], config.colorTransitionSpeed);
-                cell.currentColor[1] = lerp(cell.currentColor[1], cell.targetColor[1], config.colorTransitionSpeed);
-                cell.currentColor[2] = lerp(cell.currentColor[2], cell.targetColor[2], config.colorTransitionSpeed);
-                cell.currentAlpha = lerp(cell.currentAlpha, cell.targetAlpha, config.colorTransitionSpeed);
+                const cR = gridData[b + I_CR] = gridData[b + I_CR] * ITS + gridData[b + I_TR] * TS;
+                const cG = gridData[b + I_CG] = gridData[b + I_CG] * ITS + gridData[b + I_TG] * TS;
+                const cB = gridData[b + I_CB] = gridData[b + I_CB] * ITS + gridData[b + I_TB] * TS;
+                const cA = gridData[b + I_CA] = gridData[b + I_CA] * ITS + gridData[b + I_TA] * TS;
 
-                let shapeIndex = 0;
-                if (cell.processedElev > 0) {
-                    shapeIndex = Math.round(cell.processedElev * (CACHE_STEPS - 1));
-                    shapeIndex = Math.max(0, Math.min(CACHE_STEPS - 1, shapeIndex));
+                if (waterSameAsBg) {
+                    const dr = cR - wR, dg = cG - wG, db = cB - wB;
+                    if (dr * dr + dg * dg + db * db < 400 && Math.abs(cA - wA) < 0.08) continue;
                 }
 
-                let sprite = getSprite(
-                    cell.currentColor[0],
-                    cell.currentColor[1],
-                    cell.currentColor[2],
-                    cell.currentAlpha,
-                    shapeIndex
+                const elev = gridData[b + I_EL];
+                const si = elev > 0 ? Math.max(0, Math.min(CS1, (elev * CS1 + 0.5) | 0)) : 0;
+                ctx.drawImage(
+                    getSprite(cR | 0, cG | 0, cB | 0, cA, si),
+                    (gridData[b + I_CX] - sprHalf + 0.5) | 0,
+                    (gridData[b + I_CY] - sprHalf + 0.5) | 0
                 );
-
-                let drawX = Math.round(cell.cx - sprite.width / 2);
-                let drawY = Math.round(cell.cy - sprite.height / 2);
-
-                ctx.drawImage(sprite, drawX, drawY);
             }
         }
-
-        // if (EarthModule.isReady() && timestamp - lastLogTime > 5000 && camState === 'IDLE') {
-        //     lastLogTime = timestamp;
-
-        //     let normX = finalCamX - Math.floor(finalCamX);
-        //     if (normX < 0) normX += 1.0;
-        //     const lon = normX * 360 - 180;
-
-        //     let lat = 90 - (finalCamY / aspect) * 180;
-        //     lat = Math.max(-90, Math.min(90, lat));
-
-        //     fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=3&accept-language=uk`)
-        //         .then(res => res.json())
-        //         .then(data => {
-        //             if (data && data.address && data.address.country) {
-        //                 if (lastCountry !== data.address.country) {
-        //                     console.log(`Зависли над: %c${data.address.country}`, 'color: #ff0000; font-weight: bold;');
-        //                     lastCountry = data.address.country;
-        //                 }
-        //             }
-        //         })
-        //         .catch(err => { });
-        // }
 
         requestAnimationFrame(animate);
     }
 
-    const localMapFile = './earth_map.png';
-
-    EarthModule.load(localMapFile, function () {
-        const loadingScreen = document.getElementById('loading');
-        if (loadingScreen) {
-            loadingScreen.style.opacity = '0';
-            setTimeout(() => loadingScreen.style.display = 'none', 500);
-        }
-
+    EarthModule.load('./assets/earth_map_v2.jpg', () => {
+        const el = document.getElementById('loading');
+        if (el) { el.style.opacity = '0'; setTimeout(() => el.style.display = 'none', 500); }
         requestAnimationFrame(animate);
     });
 });
