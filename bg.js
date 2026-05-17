@@ -26,8 +26,8 @@ window.addEventListener('DOMContentLoaded', () => {
         minBend: 0.0,
         maxBend: 0.9,
 
-        colorUpdateInterval: 10,
-        colorTransitionSpeed: 0.8,
+        colorUpdateInterval: 50,
+        colorTransitionSpeed: 0.9,
         colorSteps: 15,
         alphaSteps: 3,
         minAlpha: 0.6,
