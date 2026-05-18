@@ -192,7 +192,7 @@ class SimplexController {
         return { constraints, bounds };
     }
 
-    /* ── Розв'язання ──────────────────────────────── */
+    /* Розв'язання */
     _handleSolve(skipHistorySave = false) {
         const btn = document.getElementById('solveBtn');
         if (btn) { btn.disabled = true; btn.classList.add('btn--running'); }
@@ -249,7 +249,7 @@ class SimplexController {
         }, 350);
     }
 
-    /* ── Історія ──────────────────────────────────── */
+    /* Історія */
     _showHistory() {
         const data = SimplexModel.loadHistory();
         this.view.renderHistoryPanel(

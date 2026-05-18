@@ -24,12 +24,14 @@ class SimplexModel {
             row[n + m] = this.bounds[i];
             this.tableau.push(row);
         }
+
         const zRow = new Array(n + m + 1).fill(0);
         for (let j = 0; j < n; j++) zRow[j] = -this.objective[j];
         this.tableau.push(zRow);
         this.basis = Array.from({ length: m }, (_, i) => n + i);
     }
 
+    // стовпець з найменшим від'ємним
     _getPivotColumn() {
         const zRow = this.tableau[this.tableau.length - 1];
         let minVal = -1e-10, minIdx = -1;
@@ -39,6 +41,7 @@ class SimplexModel {
         return minIdx;
     }
 
+    // правило мінімального відношення
     _getPivotRow(col) {
         const m = this.basis.length;
         const rhs = this.tableau[0].length - 1;
@@ -176,10 +179,7 @@ class SimplexModel {
                 const rhsVal = tableau[i][rhsIdx];
                 const f = frac(rhsVal);
                 if (f > EPS && basis[i] < n) {
-                    if (f > maxFrac) {
-                        maxFrac = f;
-                        cutRow = i;
-                    }
+                    if (f > maxFrac) { maxFrac = f; cutRow = i; }
                 }
             }
 
@@ -188,10 +188,7 @@ class SimplexModel {
                     const rhsVal = tableau[i][rhsIdx];
                     const f = frac(rhsVal);
                     if (f > EPS) {
-                        if (f > maxFrac) {
-                            maxFrac = f;
-                            cutRow = i;
-                        }
+                        if (f > maxFrac) { maxFrac = f; cutRow = i; }
                     }
                 }
             }
@@ -216,8 +213,9 @@ class SimplexModel {
 
             const newCols = tableau[0].length;
             const newRhsIdx = newCols - 1;
-            const cutRowData = new Array(newCols).fill(0);
 
+            // рядок відсічення
+            const cutRowData = new Array(newCols).fill(0);
             for (let j = 0; j < newCols; j++) {
                 if (j === newSlackIdx) {
                     cutRowData[j] = 1;
@@ -241,6 +239,7 @@ class SimplexModel {
                 pivotRow: null, pivotCol: null, entering: null, leaving: null
             });
 
+            // двоїстий симплекс
             let dualIter = 0;
             const MAX_DUAL_ITERS = 200;
 
@@ -269,10 +268,7 @@ class SimplexModel {
                         const delta = zRowCurrent[j];
                         if (delta >= -EPS) {
                             const ratio = Math.abs(delta) / Math.abs(tableau[pivotRow][j]);
-                            if (ratio < minRatio - EPS) {
-                                minRatio = ratio;
-                                pivotCol = j;
-                            }
+                            if (ratio < minRatio - EPS) { minRatio = ratio; pivotCol = j; }
                         }
                     }
                 }
@@ -310,7 +306,6 @@ class SimplexModel {
             }
         }
 
-        // 6. Витягуємо цілочисельний розв'язок
         const finalCols = tableau[0].length;
         const finalRhs = finalCols - 1;
         const intSolution = new Array(n).fill(0);
@@ -325,7 +320,6 @@ class SimplexModel {
             integerPlan[`x${j + 1}`] = intSolution[j];
         }
 
-        // Обчислюємо значення цільової функції
         let integerZ = 0;
         for (let j = 0; j < n; j++) {
             integerZ += objective[j] * intSolution[j];

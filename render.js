@@ -116,7 +116,7 @@ class SimplexView {
         `;
     }
 
-    /* ── Loading ──────────────────────────────────── */
+    /* Завантаження */
     renderLoading() {
         this.main.innerHTML = `
             <div class="loading-wrap">
@@ -125,7 +125,7 @@ class SimplexView {
             </div>`;
     }
 
-    /* ── Result ───────────────────────────────────── */
+    /* Результат */
     renderResult(result, intResult, objective) {
         if (result.status !== 'success') {
             this.main.innerHTML = `
@@ -156,30 +156,29 @@ class SimplexView {
 
         let intHtml = '';
         if (intResult && intResult.status === 'success') {
-            // Форматування логу методу Гоморі
             const logLines = (intResult.branchLog || []).map(l => {
                 const txt = typeof l === 'string' ? l : (l.msg || JSON.stringify(l));
-                // Заголовок відсічення
+
                 if (txt.includes('── Відсічення')) {
                     return `<div class="int-point-title">${txt}</div>`;
                 }
-                // Фінальний результат
+
                 if (txt.startsWith('Оптимальний')) {
                     return `<div class="int-final">${txt}</div>`;
                 }
-                // Інформація про обраний рядок
+
                 if (txt.startsWith('Обрано рядок')) {
                     return `<div class="int-fval">${txt}</div>`;
                 }
-                // Кроки двоїстого симплексу
+
                 if (txt.startsWith('Двоїстий крок')) {
                     return `<div class="int-check int-ok">${txt}</div>`;
                 }
-                // Повідомлення про завершення
+
                 if (txt.includes('Всі базисні змінні цілі') || txt.includes('Розв\'язок знайдено')) {
                     return `<div class="int-final">${txt}</div>`;
                 }
-                // Помилка / неможливість
+
                 if (txt.includes('не має цілочисельного')) {
                     return `<div class="int-fail-msg">${txt}</div>`;
                 }
@@ -340,18 +339,16 @@ class SimplexView {
             </div>`;
     }
 
-    // Рендер однієї ітерації таблиці Гоморі (з динамічним розміром)
+    // Рендер однієї ітерації таблиці Гоморі
     _renderGomoryIteration(step, numVars, objective, isLast) {
         const { iteration, tableau, basis, pivotRow, pivotCol, entering, leaving } = step;
         const n = numVars;
-        const m = basis.length; // кількість рядків обмежень (може зростати)
+        const m = basis.length;
         const cols = tableau[0].length;
 
         const varName = (idx) => `X${idx + 1}`;
 
-        // Заголовки стовпців: A1, A2, ..., An+m (включно з балансовими)
         const colHeaders = Array.from({ length: cols - 1 }, (_, i) => `A${i + 1}`);
-        // Рядок коефіцієнтів цільової функції: c_j для оригінальних, 0 для балансових
         const cRow = Array.from({ length: cols - 1 }, (_, i) => i < n ? objective[i] : 0);
 
         const hasPivot = !isLast && pivotRow !== null && pivotCol !== null;
@@ -393,7 +390,7 @@ class SimplexView {
             bodyRows.push(`<tr>${cells}</tr>`);
         }
 
-        // Рядок оцінок Δ (Z-рядок)
+        // Рядок оцінок дельта
         const zRow = tableau[m];
         let deltaRow = `<td class="tc tc--z"></td><td class="tc tc--z tc--basis">Δ</td>`;
         deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1])}</td>`;
@@ -441,7 +438,7 @@ class SimplexView {
         return (Math.round(val * 100) / 100).toString();
     }
 
-    /* ── History panel ────────────────────────────── */
+    /* історія */
     renderHistoryPanel(historyData, onClose, onClear, onLoad) {
         const old = document.querySelector('.history-overlay');
         if (old) old.remove();
