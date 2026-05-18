@@ -40,7 +40,8 @@ class SimplexModel {
     }
 
     _getPivotRow(col) {
-        const m = this.numConstraints, rhs = this.tableau[0].length - 1;
+        const m = this.basis.length;
+        const rhs = this.tableau[0].length - 1;
         let minRatio = Infinity, minIdx = -1;
         for (let i = 0; i < m; i++) {
             if (this.tableau[i][col] > 1e-10) {
@@ -52,7 +53,8 @@ class SimplexModel {
     }
 
     _pivot(pivotRow, pivotCol) {
-        const m = this.numConstraints, cols = this.tableau[0].length;
+        const m = this.basis.length;
+        const cols = this.tableau[0].length;
         const pe = this.tableau[pivotRow][pivotCol];
         for (let j = 0; j < cols; j++) this.tableau[pivotRow][j] /= pe;
         for (let i = 0; i <= m; i++) {
@@ -86,100 +88,260 @@ class SimplexModel {
             this._pivot(pr, pc);
             this.history.push(this._snapshot({ iteration: iter }));
         }
-        const n = this.numVars, m = this.numConstraints;
+        const n = this.numVars, m = this.basis.length;
+        const rhsIdx = this.tableau[0].length - 1;
         const solution = new Array(n).fill(0);
         for (let i = 0; i < m; i++) {
-            if (this.basis[i] < n) solution[this.basis[i]] = this.tableau[i][n + m];
+            if (this.basis[i] < n) solution[this.basis[i]] = this.tableau[i][rhsIdx];
         }
         const optimalPlan = {};
         solution.forEach((v, i) => { optimalPlan[`x${i + 1}`] = Math.round(v * 10000) / 10000; });
         return {
             status: 'success', optimalPlan,
-            maxZ: Math.round(this.tableau[m][n + m] * 10000) / 10000,
-            history: this.history, numVars: n, numConstraints: m,
+            maxZ: Math.round(this.tableau[m][rhsIdx] * 10000) / 10000,
+            history: this.history, numVars: n, numConstraints: this.numConstraints,
         };
     }
 
+
     static solveInteger(objective, constraints, bounds) {
-        const relaxed = new SimplexModel(objective, constraints, bounds);
-        const relaxedResult = relaxed.solve();
-        if (relaxedResult.status !== 'success') return { status: relaxedResult.status, relaxedResult };
+        const EPS = 1e-7;
+
+        const frac = (a) => {
+            const fl = Math.floor(a + EPS);
+            let f = a - fl;
+            if (f < EPS) f = 0;
+            if (f > 1 - EPS) f = 0;
+            return f;
+        };
+
+        const isInt = (v) => Math.abs(v - Math.round(v)) < EPS;
+
+        const model = new SimplexModel(objective, constraints, bounds);
+        const relaxedResult = model.solve();
+
+        if (relaxedResult.status !== 'success') {
+            return { status: relaxedResult.status, relaxedResult };
+        }
 
         const n = objective.length;
-        const isInt = v => Math.abs(v - Math.round(v)) < 1e-6;
-        const allInt = plan => { for (let i = 1; i <= n; i++) if (!isInt(plan[`x${i}`] || 0)) return false; return true; };
 
-        if (allInt(relaxedResult.optimalPlan)) {
-            return { status: 'success', integerPlan: { ...relaxedResult.optimalPlan }, integerZ: relaxedResult.maxZ, relaxedResult, branchLog: ['Релаксований розв\'язок вже цілочисельний'] };
+        const allIntPlan = (plan) => {
+            for (let i = 1; i <= n; i++) {
+                if (!isInt(plan[`x${i}`] || 0)) return false;
+            }
+            return true;
+        };
+
+        if (allIntPlan(relaxedResult.optimalPlan)) {
+            return {
+                status: 'success',
+                integerPlan: { ...relaxedResult.optimalPlan },
+                integerZ: relaxedResult.maxZ,
+                relaxedResult,
+                branchLog: ['Релаксований розв\'язок вже цілочисельний'],
+                gomoryHistory: []
+            };
         }
+
+        let tableau = model.tableau.map(r => [...r]);
+        let basis = [...model.basis];
+        let m = basis.length;
 
         const branchLog = [];
+        const gomoryHistory = [];
+        let cutIteration = 0;
+
         const relaxedVals = [];
         for (let j = 0; j < n; j++) relaxedVals.push(relaxedResult.optimalPlan[`x${j + 1}`] || 0);
+        branchLog.push(`Неперервний оптимум: (${relaxedVals.map(v => v.toFixed(4)).join('; ')})`);
+        branchLog.push(`F = ${relaxedResult.maxZ}`);
 
-        const relaxedStr = relaxedVals.map(v => v.toFixed(2)).join('; ');
-        branchLog.push(`Неперервний оптимум: (${relaxedStr})`);
-        branchLog.push(`Досліджуємо цілі точки в околі оптимуму:`);
+        gomoryHistory.push({
+            iteration: 'Початкова (оптимальна симплекс-таблиця)',
+            tableau: tableau.map(r => [...r]),
+            basis: [...basis],
+            pivotRow: null, pivotCol: null, entering: null, leaving: null
+        });
 
-        const floors = relaxedVals.map(v => Math.floor(v));
-        const ceils = relaxedVals.map(v => Math.ceil(v));
+        const MAX_CUTS = 100;
 
-        const combos = 1 << n;
-        const candidates = [];
-        for (let mask = 0; mask < combos; mask++) {
-            const point = [];
-            for (let j = 0; j < n; j++) {
-                point.push((mask & (1 << j)) ? ceils[j] : floors[j]);
-            }
-            const key = point.join('; ');
-            if (!candidates.some(c => c.join('; ') === key)) {
-                candidates.push(point);
-            }
-        }
+        for (let cutNum = 1; cutNum <= MAX_CUTS; cutNum++) {
+            const cols = tableau[0].length;
+            const rhsIdx = cols - 1;
 
-        let bestZ = -Infinity, bestPlan = null;
-
-        for (const point of candidates) {
-            const pointStr = point.map((v, j) => `x${j + 1}=${v}`).join(', ');
-            branchLog.push(`Перевірка точки (${point.join('; ')}):`);
-
-            let feasible = true;
-            for (let i = 0; i < constraints.length; i++) {
-                let sum = 0;
-                const parts = [];
-                for (let j = 0; j < n; j++) {
-                    sum += constraints[i][j] * point[j];
-                    if (constraints[i][j] !== 0) {
-                        parts.push(`${constraints[i][j]}(${point[j]})`);
+            let maxFrac = 0;
+            let cutRow = -1;
+            for (let i = 0; i < m; i++) {
+                const rhsVal = tableau[i][rhsIdx];
+                const f = frac(rhsVal);
+                if (f > EPS && basis[i] < n) {
+                    if (f > maxFrac) {
+                        maxFrac = f;
+                        cutRow = i;
                     }
                 }
-                const ok = sum <= bounds[i] + 1e-9;
-                branchLog.push(`  ${i + 1}. ${parts.join(' + ')} = ${sum} ≤ ${bounds[i]} - ${ok ? 'виконується' : 'НЕ виконується'}`);
-                if (!ok) { feasible = false; break; }
             }
 
-            if (feasible) {
-                let z = 0;
-                const fParts = [];
-                for (let j = 0; j < n; j++) {
-                    z += objective[j] * point[j];
-                    fParts.push(`${objective[j]}(${point[j]})`);
+            if (cutRow === -1) {
+                for (let i = 0; i < m; i++) {
+                    const rhsVal = tableau[i][rhsIdx];
+                    const f = frac(rhsVal);
+                    if (f > EPS) {
+                        if (f > maxFrac) {
+                            maxFrac = f;
+                            cutRow = i;
+                        }
+                    }
                 }
-                branchLog.push(`  F = ${fParts.join(' + ')} = ${z}`);
-                if (z > bestZ + 1e-9) {
-                    bestZ = z;
-                    bestPlan = {};
-                    for (let j = 0; j < n; j++) bestPlan[`x${j + 1}`] = point[j];
+            }
+
+            if (cutRow === -1) {
+                branchLog.push(`\nВсі базисні змінні цілі. Розв'язок знайдено за ${cutNum - 1} відсічень.`);
+                break;
+            }
+
+            const basisVarName = `X${basis[cutRow] + 1}`;
+            const rhsValue = tableau[cutRow][rhsIdx];
+            branchLog.push(`\nВідсічення #${cutNum}`);
+            branchLog.push(`Обрано рядок: ${basisVarName} = ${rhsValue.toFixed(4)}, дробова частина = ${maxFrac.toFixed(4)}`);
+
+            const newSlackIdx = cols - 1;
+
+            for (let i = 0; i <= m; i++) {
+                const rhs = tableau[i][rhsIdx];
+                tableau[i][rhsIdx] = 0;
+                tableau[i].push(rhs);
+            }
+
+            const newCols = tableau[0].length;
+            const newRhsIdx = newCols - 1;
+            const cutRowData = new Array(newCols).fill(0);
+
+            for (let j = 0; j < newCols; j++) {
+                if (j === newSlackIdx) {
+                    cutRowData[j] = 1;
+                } else {
+                    cutRowData[j] = -frac(tableau[cutRow][j]);
                 }
-            } else {
-                branchLog.push(`  Точка не задовольняє обмеження.`);
+            }
+
+            const zRow = tableau.pop();
+            tableau.push(cutRowData);
+            tableau.push(zRow);
+            basis.push(newSlackIdx);
+            m = basis.length;
+
+            branchLog.push(`Додано рядок відсічення та балансову змінну X${newSlackIdx + 1}`);
+
+            gomoryHistory.push({
+                iteration: `Відсічення #${cutNum} (до двоїстого симплексу)`,
+                tableau: tableau.map(r => [...r]),
+                basis: [...basis],
+                pivotRow: null, pivotCol: null, entering: null, leaving: null
+            });
+
+            let dualIter = 0;
+            const MAX_DUAL_ITERS = 200;
+
+            while (dualIter < MAX_DUAL_ITERS) {
+                dualIter++;
+                const currentCols = tableau[0].length;
+                const currentRhs = currentCols - 1;
+
+                let pivotRow = -1;
+                let minRhs = -EPS;
+                for (let i = 0; i < m; i++) {
+                    if (tableau[i][currentRhs] < minRhs) {
+                        minRhs = tableau[i][currentRhs];
+                        pivotRow = i;
+                    }
+                }
+
+                if (pivotRow === -1) break;
+
+                const zRowCurrent = tableau[m];
+                let pivotCol = -1;
+                let minRatio = Infinity;
+
+                for (let j = 0; j < currentCols - 1; j++) {
+                    if (tableau[pivotRow][j] < -EPS) {
+                        const delta = zRowCurrent[j];
+                        if (delta >= -EPS) {
+                            const ratio = Math.abs(delta) / Math.abs(tableau[pivotRow][j]);
+                            if (ratio < minRatio - EPS) {
+                                minRatio = ratio;
+                                pivotCol = j;
+                            }
+                        }
+                    }
+                }
+
+                if (pivotCol === -1) {
+                    branchLog.push(`Двоїстий симплекс: не знайдено допустимого стовпця. Задача не має цілочисельного розв'язку.`);
+                    return { status: 'no_integer', relaxedResult, branchLog, gomoryHistory };
+                }
+
+                const entering = `X${pivotCol + 1}`;
+                const leaving = `X${basis[pivotRow] + 1}`;
+                branchLog.push(`Двоїстий крок: ведучий елемент [${pivotRow}, ${pivotCol}] = ${tableau[pivotRow][pivotCol].toFixed(4)}, ${entering} ↔ ${leaving}`);
+
+                gomoryHistory[gomoryHistory.length - 1].pivotRow = pivotRow;
+                gomoryHistory[gomoryHistory.length - 1].pivotCol = pivotCol;
+                gomoryHistory[gomoryHistory.length - 1].entering = entering;
+                gomoryHistory[gomoryHistory.length - 1].leaving = leaving;
+
+                const pe = tableau[pivotRow][pivotCol];
+                for (let j = 0; j < currentCols; j++) tableau[pivotRow][j] /= pe;
+                for (let i = 0; i <= m; i++) {
+                    if (i === pivotRow) continue;
+                    const f = tableau[i][pivotCol];
+                    if (Math.abs(f) < 1e-12) continue;
+                    for (let j = 0; j < currentCols; j++) tableau[i][j] -= f * tableau[pivotRow][j];
+                }
+                basis[pivotRow] = pivotCol;
+
+                gomoryHistory.push({
+                    iteration: `Відсічення #${cutNum}, двоїстий крок ${dualIter}`,
+                    tableau: tableau.map(r => [...r]),
+                    basis: [...basis],
+                    pivotRow: null, pivotCol: null, entering: null, leaving: null
+                });
             }
         }
 
-        if (!bestPlan) return { status: 'no_integer', relaxedResult, branchLog };
-        const planStr = Object.entries(bestPlan).map(([k, v]) => `${k} = ${v}`).join(', ');
-        branchLog.push(`Оптимальний цілочисельний розв'язок: ${planStr}, F = ${bestZ}`);
-        return { status: 'success', integerPlan: bestPlan, integerZ: Math.round(bestZ * 10000) / 10000, relaxedResult, branchLog };
+        // 6. Витягуємо цілочисельний розв'язок
+        const finalCols = tableau[0].length;
+        const finalRhs = finalCols - 1;
+        const intSolution = new Array(n).fill(0);
+        for (let i = 0; i < m; i++) {
+            if (basis[i] < n) {
+                intSolution[basis[i]] = Math.round(tableau[i][finalRhs]);
+            }
+        }
+
+        const integerPlan = {};
+        for (let j = 0; j < n; j++) {
+            integerPlan[`x${j + 1}`] = intSolution[j];
+        }
+
+        // Обчислюємо значення цільової функції
+        let integerZ = 0;
+        for (let j = 0; j < n; j++) {
+            integerZ += objective[j] * intSolution[j];
+        }
+
+        const planStr = Object.entries(integerPlan).map(([k, v]) => `${k} = ${v}`).join(', ');
+        branchLog.push(`\nОптимальний цілочисельний розв'язок: ${planStr}, F = ${integerZ}`);
+
+        return {
+            status: 'success',
+            integerPlan,
+            integerZ: Math.round(integerZ * 10000) / 10000,
+            relaxedResult,
+            branchLog,
+            gomoryHistory
+        };
     }
 
     static saveToHistory(entry) {

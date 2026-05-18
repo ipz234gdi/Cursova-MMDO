@@ -156,26 +156,43 @@ class SimplexView {
 
         let intHtml = '';
         if (intResult && intResult.status === 'success') {
+            // Форматування логу методу Гоморі
             const logLines = (intResult.branchLog || []).map(l => {
                 const txt = typeof l === 'string' ? l : (l.msg || JSON.stringify(l));
-                if (txt.startsWith('  ') && (txt.includes('виконується') || txt.includes('НЕ виконується'))) {
-                    const ok = txt.includes('виконується') && !txt.includes('НЕ');
-                    return `<div class="int-check ${ok ? 'int-ok' : 'int-fail'}">${txt.trim()}</div>`;
-                }
-                if (txt.startsWith('Перевірка точки')) {
+                // Заголовок відсічення
+                if (txt.includes('── Відсічення')) {
                     return `<div class="int-point-title">${txt}</div>`;
                 }
-                if (txt.startsWith('  F =')) {
-                    return `<div class="int-fval">${txt.trim()}</div>`;
-                }
+                // Фінальний результат
                 if (txt.startsWith('Оптимальний')) {
                     return `<div class="int-final">${txt}</div>`;
                 }
-                if (txt.startsWith('  Точка не')) {
-                    return `<div class="int-fail-msg">${txt.trim()}</div>`;
+                // Інформація про обраний рядок
+                if (txt.startsWith('Обрано рядок')) {
+                    return `<div class="int-fval">${txt}</div>`;
+                }
+                // Кроки двоїстого симплексу
+                if (txt.startsWith('Двоїстий крок')) {
+                    return `<div class="int-check int-ok">${txt}</div>`;
+                }
+                // Повідомлення про завершення
+                if (txt.includes('Всі базисні змінні цілі') || txt.includes('Розв\'язок знайдено')) {
+                    return `<div class="int-final">${txt}</div>`;
+                }
+                // Помилка / неможливість
+                if (txt.includes('не має цілочисельного')) {
+                    return `<div class="int-fail-msg">${txt}</div>`;
                 }
                 return `<div class="int-log-line">${txt}</div>`;
             }).join('');
+
+            // Рендер таблиць ітерацій Гоморі
+            const gomorySteps = intResult.gomoryHistory || [];
+            const gomoryTablesHtml = gomorySteps.length > 0
+                ? gomorySteps.map((step, idx) =>
+                    this._renderGomoryIteration(step, numVars, obj, idx === gomorySteps.length - 1)
+                ).join('')
+                : '';
 
             intHtml = `
             <div class="result-cards">
@@ -192,14 +209,15 @@ class SimplexView {
                 </div>`).join('')}
             </div>
             <div class="iter-section">
-                <h2 class="iter-section-title">Знаходження цілочисельного розв'язку</h2>
+                <h2 class="iter-section-title">Метод Гоморі (правильні відсічення)</h2>
                 <div class="iter-block" style="opacity:1;padding:16px 18px;">
                     ${logLines}
                 </div>
+                ${gomoryTablesHtml}
             </div>`;
         } else if (intResult && intResult.status === 'no_integer') {
             intHtml = `<div class="error-wrap" style="height:auto;padding:20px 28px;">
-                <p>Цілочисельний розв'язок не знайдено.</p>
+                <p>Цілочисельний розв'язок не знайдено (метод Гоморі).</p>
             </div>`;
         }
 
@@ -302,6 +320,92 @@ class SimplexView {
             <div class="iter-block">
                 <div class="iter-header">
                     <div class="iter-badge">${iteration === 0 ? 'Початок' : `Ітерація ${iteration}`}</div>
+                    ${pivotInfoHtml}
+                </div>
+                <div class="table-scroll-wrap">
+                    <table class="stab">
+                        <thead>
+                            <tr>
+                                <th></th><th>C</th><th>−</th>
+                                ${cRow.map(c => `<th>${c}</th>`).join('')}
+                            </tr>
+                            <tr>
+                                <th></th><th>B</th><th>A0</th>
+                                ${colHeaders.map(h => `<th>${h}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>${bodyRows.join('')}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    }
+
+    // Рендер однієї ітерації таблиці Гоморі (з динамічним розміром)
+    _renderGomoryIteration(step, numVars, objective, isLast) {
+        const { iteration, tableau, basis, pivotRow, pivotCol, entering, leaving } = step;
+        const n = numVars;
+        const m = basis.length; // кількість рядків обмежень (може зростати)
+        const cols = tableau[0].length;
+
+        const varName = (idx) => `X${idx + 1}`;
+
+        // Заголовки стовпців: A1, A2, ..., An+m (включно з балансовими)
+        const colHeaders = Array.from({ length: cols - 1 }, (_, i) => `A${i + 1}`);
+        // Рядок коефіцієнтів цільової функції: c_j для оригінальних, 0 для балансових
+        const cRow = Array.from({ length: cols - 1 }, (_, i) => i < n ? objective[i] : 0);
+
+        const hasPivot = !isLast && pivotRow !== null && pivotCol !== null;
+
+        const pivotInfoHtml = (entering && leaving)
+            ? `<div class="pivot-info">
+                   <span class="pi-label">Вводиться:</span>
+                   <span class="pi-enter">${entering}</span>
+                   <span class="pi-sep">→</span>
+                   <span class="pi-label">Виводиться:</span>
+                   <span class="pi-leave">${leaving}</span>
+               </div>`
+            : (isLast
+                ? '<div class="pivot-info pi-initial">Оптимальна таблиця (ціла)</div>'
+                : '<div class="pivot-info pi-initial">Таблиця Гоморі</div>');
+
+        const bodyRows = [];
+        for (let ri = 0; ri < m; ri++) {
+            const bIdx = basis[ri];
+            const bName = `X${bIdx + 1}`;
+            const cVal = bIdx < n ? objective[bIdx] : 0;
+            const isOptBasis = isLast && bIdx < n;
+
+            let cells = '';
+            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''}">${cVal}</td>`;
+            cells += `<td class="tc tc--basis${isOptBasis ? ' tc--pivot' : ''}">${bName}</td>`;
+            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''} tc--rhs">${this._fmt(tableau[ri][cols - 1])}</td>`;
+
+            for (let ci = 0; ci < cols - 1; ci++) {
+                const isPE = hasPivot && ri === pivotRow && ci === pivotCol;
+                const isPR = hasPivot && ri === pivotRow;
+                const isPC = hasPivot && ci === pivotCol;
+                let cls = 'tc';
+                if (isPE) cls += ' tc--pivot';
+                else if (isPR) cls += ' tc--prow';
+                else if (isPC) cls += ' tc--pcol';
+                cells += `<td class="${cls}">${this._fmt(tableau[ri][ci])}</td>`;
+            }
+            bodyRows.push(`<tr>${cells}</tr>`);
+        }
+
+        // Рядок оцінок Δ (Z-рядок)
+        const zRow = tableau[m];
+        let deltaRow = `<td class="tc tc--z"></td><td class="tc tc--z tc--basis">Δ</td>`;
+        deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1])}</td>`;
+        for (let ci = 0; ci < cols - 1; ci++) {
+            deltaRow += `<td class="tc tc--z">${this._fmt(zRow[ci])}</td>`;
+        }
+        bodyRows.push(`<tr class="tr--z">${deltaRow}</tr>`);
+
+        return `
+            <div class="iter-block">
+                <div class="iter-header">
+                    <div class="iter-badge">${iteration}</div>
                     ${pivotInfoHtml}
                 </div>
                 <div class="table-scroll-wrap">
