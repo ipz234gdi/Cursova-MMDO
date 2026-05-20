@@ -17,6 +17,7 @@ class SimplexModel {
     _buildTableau() {
         const n = this.numVars, m = this.numConstraints;
         this.tableau = [];
+
         for (let i = 0; i < m; i++) {
             const row = new Array(n + m + 1).fill(0);
             for (let j = 0; j < n; j++) row[j] = this.constraints[i][j];
@@ -35,9 +36,11 @@ class SimplexModel {
     _getPivotColumn() {
         const zRow = this.tableau[this.tableau.length - 1];
         let minVal = -1e-10, minIdx = -1;
+
         for (let j = 0; j < zRow.length - 1; j++) {
             if (zRow[j] < minVal) { minVal = zRow[j]; minIdx = j; }
         }
+
         return minIdx;
     }
 
@@ -46,12 +49,14 @@ class SimplexModel {
         const m = this.basis.length;
         const rhs = this.tableau[0].length - 1;
         let minRatio = Infinity, minIdx = -1;
+
         for (let i = 0; i < m; i++) {
             if (this.tableau[i][col] > 1e-10) {
                 const ratio = this.tableau[i][rhs] / this.tableau[i][col];
                 if (ratio < minRatio - 1e-10) { minRatio = ratio; minIdx = i; }
             }
         }
+
         return minIdx;
     }
 
@@ -59,13 +64,16 @@ class SimplexModel {
         const m = this.basis.length;
         const cols = this.tableau[0].length;
         const pe = this.tableau[pivotRow][pivotCol];
+
         for (let j = 0; j < cols; j++) this.tableau[pivotRow][j] /= pe;
+
         for (let i = 0; i <= m; i++) {
             if (i === pivotRow) continue;
             const f = this.tableau[i][pivotCol];
             if (Math.abs(f) < 1e-12) continue;
             for (let j = 0; j < cols; j++) this.tableau[i][j] -= f * this.tableau[pivotRow][j];
         }
+
         this.basis[pivotRow] = pivotCol;
     }
 
@@ -91,14 +99,18 @@ class SimplexModel {
             this._pivot(pr, pc);
             this.history.push(this._snapshot({ iteration: iter }));
         }
+
         const n = this.numVars, m = this.basis.length;
         const rhsIdx = this.tableau[0].length - 1;
         const solution = new Array(n).fill(0);
+
         for (let i = 0; i < m; i++) {
             if (this.basis[i] < n) solution[this.basis[i]] = this.tableau[i][rhsIdx];
         }
+
         const optimalPlan = {};
         solution.forEach((v, i) => { optimalPlan[`x${i + 1}`] = Math.round(v * 10000) / 10000; });
+        
         return {
             status: 'success', optimalPlan,
             maxZ: Math.round(this.tableau[m][rhsIdx] * 10000) / 10000,
@@ -156,7 +168,9 @@ class SimplexModel {
         let cutIteration = 0;
 
         const relaxedVals = [];
+
         for (let j = 0; j < n; j++) relaxedVals.push(relaxedResult.optimalPlan[`x${j + 1}`] || 0);
+        
         branchLog.push(`Неперервний оптимум: (${relaxedVals.map(v => v.toFixed(4)).join('; ')})`);
         branchLog.push(`F = ${relaxedResult.maxZ}`);
 

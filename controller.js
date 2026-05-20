@@ -29,30 +29,47 @@ class SimplexController {
     _attachEvents() {
         this.view.attachSolveListener(() => this._handleSolve());
 
+        const enforceNonNegative = (inp) => {
+            let val = parseFloat(inp.value) || 0;
+            if (val < 0) {
+                val = 0;
+                inp.value = 0;
+                inp.classList.add('input-error-flash');
+                setTimeout(() => inp.classList.remove('input-error-flash'), 500);
+            }
+            return val;
+        };
+
         document.querySelectorAll('.inp-cell').forEach(inp => {
             inp.addEventListener('change', () => {
                 const wi = +inp.dataset.wi, ti = +inp.dataset.ti;
                 if (!this.state.tableData[wi]) this.state.tableData[wi] = [];
-                this.state.tableData[wi][ti] = parseFloat(inp.value) || 0;
+
+                this.state.tableData[wi][ti] = enforceNonNegative(inp);
+
                 this._refreshObjective();
             });
         });
+
         document.querySelectorAll('.inp-park').forEach(inp => {
             inp.addEventListener('change', () => {
-                this.state.parkData[+inp.dataset.wi] = parseFloat(inp.value) || 0;
+                this.state.parkData[+inp.dataset.wi] = enforceNonNegative(inp);
             });
         });
+
         document.querySelectorAll('.inp-pass').forEach(inp => {
             inp.addEventListener('change', () => {
-                this.state.passengers[+inp.dataset.wi] = parseFloat(inp.value) || 0;
+                this.state.passengers[+inp.dataset.wi] = enforceNonNegative(inp);
                 this._refreshObjective();
             });
         });
+
         document.querySelectorAll('.inp-wagon-name').forEach(inp => {
             inp.addEventListener('change', () => {
                 this.state.wagonTypes[+inp.dataset.wi] = inp.value;
             });
         });
+
         document.querySelectorAll('.inp-train-name').forEach(inp => {
             inp.addEventListener('change', () => {
                 this.state.trainTypes[+inp.dataset.ti] = inp.value;
@@ -109,9 +126,10 @@ class SimplexController {
         });
         document.querySelectorAll('.ec-val').forEach(inp => {
             inp.addEventListener('change', () => {
-                this.state.extraConstraints[+inp.dataset.idx].value = parseFloat(inp.value) || 0;
+                this.state.extraConstraints[+inp.dataset.idx].value = enforceNonNegative(inp);
             });
         });
+
         document.querySelectorAll('.btn-del-ec').forEach(btn => {
             btn.addEventListener('click', () => {
                 this.state.extraConstraints.splice(+btn.dataset.idx, 1);

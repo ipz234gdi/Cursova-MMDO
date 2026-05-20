@@ -762,6 +762,12 @@ body {
     color: #aaa;
 }
 
+.input-error-flash {
+    background-color: #ffe6e6 !important;
+    border-color: #ff4d4d !important;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
 .pi-initial {
     color: #888;
     font-style: italic;
