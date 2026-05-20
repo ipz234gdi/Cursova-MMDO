@@ -223,16 +223,18 @@ class SimplexController {
                 console.log('Objective:', objective);
                 console.log('Constraints:', constraints, 'Bounds:', bounds);
 
-                const model = new SimplexModel(objective, constraints, bounds);
-                const result = model.solve();
-                console.log('Simplex result:', result.status, result.optimalPlan, 'Z=', result.maxZ);
+                // const model = new SimplexModel(objective, constraints, bounds);
+                // const result = model.solve();
+                // console.log('Simplex result:', result.status, result.optimalPlan, 'Z=', result.maxZ);
 
                 let intResult = null;
-                if (result.status === 'success') {
+                if (true) {
                     console.log('Starting Branch and Bound...');
                     intResult = SimplexModel.solveInteger(objective, constraints, bounds);
                     console.log('BnB result:', intResult.status, intResult.integerPlan, 'Z=', intResult.integerZ);
                 }
+
+                const result = intResult.relaxedResult || intResult;
 
                 console.log('Rendering result...');
                 this.view.renderResult(result, intResult, objective);
