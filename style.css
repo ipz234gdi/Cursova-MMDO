@@ -688,7 +688,7 @@ body {
 }
 
 .int-check::before {
-    content: "•";
+    content: "";
     /* Re-add bullet point, or keep empty if not needed */
     position: absolute;
     left: 0;
@@ -957,6 +957,9 @@ body {
     justify-content: center;
     height: 40vh;
     gap: 10px;
+    padding: 0 20px;
+    background: #ffe6e6;
+    border-radius: 50px;
     color: #c44;
 }
 
@@ -1111,4 +1114,28 @@ body {
         min-width: 140px;
         flex: 1;
     }
+}
+
+.inp-sign {
+    color: var(--primary-color);
+    font-weight: 600;
+    font-size: 12px;
+    font-family: inherit;
+    background: rgba(90, 185, 234, 0.05);
+    border: 1px solid rgba(90, 185, 234, 0.2);
+    border-radius: 6px;
+    padding: 2px 4px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.inp-sign:hover {
+    background: rgba(90, 185, 234, 0.15);
+}
+
+.inp-sign:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(90, 185, 234, 0.15);
 }

@@ -13,6 +13,7 @@ class SimplexController {
             ],
             parkData: [12, 18, 89, 79, 35],
             objectiveCoeffs: [658, 688],
+            constraintSigns: ['le', 'le', 'le', 'le', 'le'],
             extraConstraints: [],
             optimizationType: 'max',
             headerWagon: 'Вагон',
@@ -52,14 +53,13 @@ class SimplexController {
             inp.addEventListener('change', () => {
                 const wi = +inp.dataset.wi, ti = +inp.dataset.ti;
                 if (!this.state.tableData[wi]) this.state.tableData[wi] = [];
-
-                this.state.tableData[wi][ti] = enforceNonNegative(inp);
+                this.state.tableData[wi][ti] = parseFloat(inp.value) || 0;
             });
         });
 
         document.querySelectorAll('.inp-park').forEach(inp => {
             inp.addEventListener('change', () => {
-                this.state.parkData[+inp.dataset.wi] = enforceNonNegative(inp);
+                this.state.parkData[+inp.dataset.wi] = parseFloat(inp.value) || 0;
             });
         });
 
@@ -82,6 +82,7 @@ class SimplexController {
                 this.state.wagonTypes.splice(wi, 1);
                 this.state.tableData.splice(wi, 1);
                 this.state.parkData.splice(wi, 1);
+                this.state.constraintSigns.splice(wi, 1);
                 this._render();
             });
         });
@@ -102,6 +103,7 @@ class SimplexController {
             this.state.wagonTypes.push('Новий');
             this.state.tableData.push(new Array(this.state.trainTypes.length).fill(0));
             this.state.parkData.push(0);
+            this.state.constraintSigns.push('le');
             this._render();
         });
 
@@ -162,6 +164,13 @@ class SimplexController {
                 this.state.objectiveCoeffs[ti] = newCoeff;
             });
         });
+
+        document.querySelectorAll('.inp-sign').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const wi = +sel.dataset.wi;
+                this.state.constraintSigns[wi] = sel.value;
+            });
+        });
     }
 
     _buildObjective() {
@@ -177,6 +186,7 @@ class SimplexController {
         const n = this.state.trainTypes.length;
         const constraints = [];
         const bounds = [];
+        const signs = [...this.state.constraintSigns];
 
         for (let w = 0; w < this.state.wagonTypes.length; w++) {
             const row = new Array(n).fill(0);
@@ -187,28 +197,7 @@ class SimplexController {
             bounds.push(this.state.parkData[w] || 0);
         }
 
-        for (const ec of this.state.extraConstraints) {
-            const row = new Array(n).fill(0);
-            if (ec.sign === 'le') {
-                row[ec.varIdx] = 1;
-                constraints.push(row);
-                bounds.push(ec.value);
-            } else if (ec.sign === 'ge') {
-                row[ec.varIdx] = -1;
-                constraints.push(row);
-                bounds.push(-ec.value);
-            } else if (ec.sign === 'eq') {
-                const row2 = new Array(n).fill(0);
-                row[ec.varIdx] = 1;
-                row2[ec.varIdx] = -1;
-                constraints.push(row);
-                bounds.push(ec.value);
-                constraints.push(row2);
-                bounds.push(-ec.value);
-            }
-        }
-
-        return { constraints, bounds };
+        return { constraints, bounds, signs };
     }
 
     _handleSolve(skipHistorySave = false) {
@@ -219,14 +208,14 @@ class SimplexController {
         setTimeout(() => {
             try {
                 const objective = this._buildObjective();
-                const { constraints, bounds } = this._buildConstraintsAndBounds();
+                const { constraints, bounds, signs } = this._buildConstraintsAndBounds();
                 const solveObjective = objective;
                 console.log('Objective:', objective, this.state.optimizationType);
-                console.log('Constraints:', constraints, 'Bounds:', bounds);
+                console.log('Constraints:', constraints, 'Bounds:', bounds, 'Signs:', signs);
 
                 let intResult = null;
                 if (true) {
-                    intResult = SimplexModel.solveInteger(solveObjective, constraints, bounds, this.state.optimizationType);
+                    intResult = SimplexModel.solveInteger(solveObjective, constraints, bounds, signs, this.state.optimizationType);
                     console.log('Integer result:', intResult.status, intResult.integerPlan, 'Z=', intResult.integerZ);
                 }
 
@@ -240,8 +229,10 @@ class SimplexController {
                         wagonTypes: [...this.state.wagonTypes],
                         tableData: this.state.tableData.map(r => [...r]),
                         parkData: [...this.state.parkData],
+                        constraintSigns: [...this.state.constraintSigns],
                         extraConstraints: JSON.parse(JSON.stringify(this.state.extraConstraints)),
                         objective,
+                        optimizationType: this.state.optimizationType,
                         maxZ: result.maxZ,
                         optimalPlan: result.optimalPlan,
                         integerZ: intResult && intResult.status === 'success' ? intResult.integerZ : null,
@@ -276,7 +267,9 @@ class SimplexController {
                     if (entry.tableData) this.state.tableData = entry.tableData;
                     if (entry.parkData) this.state.parkData = entry.parkData;
                     if (entry.objective) this.state.objectiveCoeffs = entry.objective;
+                    if (entry.constraintSigns) this.state.constraintSigns = entry.constraintSigns;
                     if (entry.extraConstraints) this.state.extraConstraints = entry.extraConstraints;
+                    if (entry.optimizationType) this.state.optimizationType = entry.optimizationType;
                 }
                 this._render();
                 this._handleSolve(true);

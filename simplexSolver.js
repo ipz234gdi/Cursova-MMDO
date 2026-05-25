@@ -1,64 +1,156 @@
 class SimplexModel {
-    constructor(objective, constraints, bounds, optType = 'max') {
+    constructor(objective, constraints, bounds, signs, optType = 'max') {
         this.objective = [...objective];
         this.constraints = constraints.map(r => [...r]);
         this.bounds = [...bounds];
+        this.signs = signs ? [...signs] : new Array(bounds.length).fill('le');
         this.numVars = objective.length;
         this.numConstraints = constraints.length;
         this.tableau = [];
         this.basis = [];
         this.history = [];
         this.optType = optType;
+        this.M = 1000000;
     }
 
     getVarName(idx) {
         return `X${idx + 1}`;
     }
 
+    _compare(x, y) {
+        if (Math.abs(x[1] - y[1]) > 1e-9) {
+            return x[1] - y[1];
+        }
+        return x[0] - y[0];
+    }
+
     _buildTableau() {
         const n = this.numVars, m = this.numConstraints;
-        this.tableau = [];
+        const A = this.constraints.map(r => [...r]);
+        const b = [...this.bounds];
+        const s = [...this.signs];
 
         for (let i = 0; i < m; i++) {
-            const row = new Array(n + m + 1).fill(0);
-            for (let j = 0; j < n; j++) row[j] = this.constraints[i][j];
-            row[n + i] = 1;
-            row[n + m] = this.bounds[i];
+            if (b[i] < 0) {
+                b[i] = -b[i];
+                for (let j = 0; j < n; j++) A[i][j] = -A[i][j];
+                if (s[i] === 'le') s[i] = 'ge';
+                else if (s[i] === 'ge') s[i] = 'le';
+            }
+        }
+
+        let maxVal = 1;
+        for (let i = 0; i < m; i++) {
+            for (let j = 0; j < n; j++) {
+                maxVal = Math.max(maxVal, Math.abs(A[i][j]));
+            }
+            maxVal = Math.max(maxVal, Math.abs(b[i]));
+        }
+        for (let j = 0; j < n; j++) {
+            maxVal = Math.max(maxVal, Math.abs(this.objective[j]));
+        }
+        this.M = maxVal * 10000;
+
+        let numSlack = 0;
+        let numArtificial = 0;
+        for (let i = 0; i < m; i++) {
+            if (s[i] === 'le') {
+                numSlack++;
+            } else if (s[i] === 'ge') {
+                numSlack++;
+                numArtificial++;
+            } else if (s[i] === 'eq') {
+                numArtificial++;
+            }
+        }
+
+        const totalCols = n + numSlack + numArtificial + 1;
+        this.tableau = [];
+        this.basis = [];
+
+        let slackCount = 0;
+        let artCount = 0;
+        const artVarIdxOfRow = new Array(m).fill(-1);
+
+        for (let i = 0; i < m; i++) {
+            const row = Array.from({ length: totalCols }, () => [0, 0]);
+            for (let j = 0; j < n; j++) {
+                row[j] = [A[i][j], 0];
+            }
+
+            if (s[i] === 'le') {
+                row[n + slackCount] = [1, 0];
+                this.basis.push(n + slackCount);
+                slackCount++;
+            } else if (s[i] === 'ge') {
+                row[n + slackCount] = [-1, 0];
+                row[n + numSlack + artCount] = [1, 0];
+                artVarIdxOfRow[i] = n + numSlack + artCount;
+                this.basis.push(n + numSlack + artCount);
+                slackCount++;
+                artCount++;
+            } else if (s[i] === 'eq') {
+                row[n + numSlack + artCount] = [1, 0];
+                artVarIdxOfRow[i] = n + numSlack + artCount;
+                this.basis.push(n + numSlack + artCount);
+                artCount++;
+            }
+
+            row[totalCols - 1] = [b[i], 0];
             this.tableau.push(row);
         }
 
-        const zRow = new Array(n + m + 1).fill(0);
-        for (let j = 0; j < n; j++) zRow[j] = -this.objective[j];
+        const zRow = Array.from({ length: totalCols }, () => [0, 0]);
+        for (let j = 0; j < n; j++) {
+            zRow[j] = [-this.objective[j], 0];
+        }
+
+        const penaltySign = this.optType === 'max' ? 1 : -1;
+        for (let k = 0; k < numArtificial; k++) {
+            zRow[n + numSlack + k] = [0, penaltySign];
+        }
+
+        for (let i = 0; i < m; i++) {
+            const aIdx = artVarIdxOfRow[i];
+            if (aIdx !== -1) {
+                const coef = zRow[aIdx];
+                for (let j = 0; j < totalCols; j++) {
+                    zRow[j] = [
+                        zRow[j][0] - coef[0] * this.tableau[i][j][0],
+                        zRow[j][1] - coef[1] * this.tableau[i][j][0]
+                    ];
+                }
+            }
+        }
+
         this.tableau.push(zRow);
-        this.basis = Array.from({ length: m }, (_, i) => n + i);
     }
 
     _getPivotColumn() {
         const zRow = this.tableau[this.tableau.length - 1];
         if (this.optType === 'min') {
-            let maxVal = 1e-10, maxIdx = -1;
+            let maxVal = [1e-10, 0], maxIdx = -1;
             for (let j = 0; j < zRow.length - 1; j++) {
-                if (zRow[j] > maxVal) { maxVal = zRow[j]; maxIdx = j; }
+                if (this._compare(zRow[j], maxVal) > 0) { maxVal = zRow[j]; maxIdx = j; }
             }
             return maxIdx;
         } else {
-            let minVal = -1e-10, minIdx = -1;
+            let minVal = [-1e-10, 0], minIdx = -1;
             for (let j = 0; j < zRow.length - 1; j++) {
-                if (zRow[j] < minVal) { minVal = zRow[j]; minIdx = j; }
+                if (this._compare(zRow[j], minVal) < 0) { minVal = zRow[j]; minIdx = j; }
             }
             return minIdx;
         }
     }
 
-    // правило мінімального відношення
     _getPivotRow(col) {
         const m = this.basis.length;
         const rhs = this.tableau[0].length - 1;
         let minRatio = Infinity, minIdx = -1;
 
         for (let i = 0; i < m; i++) {
-            if (this.tableau[i][col] > 1e-10) {
-                const ratio = this.tableau[i][rhs] / this.tableau[i][col];
+            if (this.tableau[i][col][0] > 1e-10) {
+                const ratio = this.tableau[i][rhs][0] / this.tableau[i][col][0];
                 if (ratio < minRatio - 1e-10) { minRatio = ratio; minIdx = i; }
             }
         }
@@ -69,27 +161,38 @@ class SimplexModel {
     _pivot(pivotRow, pivotCol) {
         const m = this.basis.length;
         const cols = this.tableau[0].length;
-        const pe = this.tableau[pivotRow][pivotCol];
+        const pe = this.tableau[pivotRow][pivotCol][0];
 
-        for (let j = 0; j < cols; j++) this.tableau[pivotRow][j] /= pe;
+        for (let j = 0; j < cols; j++) {
+            this.tableau[pivotRow][j] = [this.tableau[pivotRow][j][0] / pe, this.tableau[pivotRow][j][1] / pe];
+        }
 
         for (let i = 0; i <= m; i++) {
             if (i === pivotRow) continue;
             const f = this.tableau[i][pivotCol];
-            if (Math.abs(f) < 1e-12) continue;
-            for (let j = 0; j < cols; j++) this.tableau[i][j] -= f * this.tableau[pivotRow][j];
+            if (Math.abs(f[0]) < 1e-12 && Math.abs(f[1]) < 1e-12) continue;
+            for (let j = 0; j < cols; j++) {
+                this.tableau[i][j] = [
+                    this.tableau[i][j][0] - f[0] * this.tableau[pivotRow][j][0],
+                    this.tableau[i][j][1] - f[0] * this.tableau[pivotRow][j][1] - f[1] * this.tableau[pivotRow][j][0]
+                ];
+            }
         }
 
         this.basis[pivotRow] = pivotCol;
     }
 
     _snapshot({ iteration, pivotRow = null, pivotCol = null, entering = null, leaving = null } = {}) {
-        return { iteration, tableau: this.tableau.map(r => [...r]), basis: [...this.basis], pivotRow, pivotCol, entering, leaving };
+        return { iteration, tableau: this.tableau.map(r => r.map(c => [...c])), basis: [...this.basis], pivotRow, pivotCol, entering, leaving };
     }
 
     solve() {
         this._buildTableau();
         this.history = [this._snapshot({ iteration: 0 })];
+        const n = this.numVars, m = this.numConstraints;
+        const cols = this.tableau[0].length;
+        const rhsIdx = cols - 1;
+
         for (let iter = 1; iter <= 200; iter++) {
             const pc = this._getPivotColumn();
             if (pc === -1) break;
@@ -106,31 +209,50 @@ class SimplexModel {
             this.history.push(this._snapshot({ iteration: iter }));
         }
 
-        const n = this.numVars, m = this.basis.length;
-        const rhsIdx = this.tableau[0].length - 1;
-        const solution = new Array(n).fill(0);
+        let numSlack = 0;
+        let numArtificial = 0;
+        const s = [...this.signs];
+        for (let i = 0; i < m; i++) {
+            const signVal = s[i] || 'le';
+            if (signVal === 'le') numSlack++;
+            else if (signVal === 'ge') { numSlack++; numArtificial++; }
+            else if (signVal === 'eq') numArtificial++;
+        }
 
         for (let i = 0; i < m; i++) {
-            if (this.basis[i] < n) solution[this.basis[i]] = this.tableau[i][rhsIdx];
+            const bVar = this.basis[i];
+            if (bVar >= n + numSlack) {
+                if (Math.abs(this.tableau[i][rhsIdx][0]) > 1e-5) {
+                    return { status: 'infeasible' };
+                }
+            }
+        }
+
+        const solution = new Array(n).fill(0);
+        for (let i = 0; i < m; i++) {
+            if (this.basis[i] < n) {
+                solution[this.basis[i]] = this.tableau[i][rhsIdx][0];
+            }
         }
 
         const optimalPlan = {};
         solution.forEach((v, i) => { optimalPlan[`x${i + 1}`] = Math.round(v * 10000) / 10000; });
-        
+
         return {
             status: 'success', optimalPlan,
-            maxZ: Math.round(this.tableau[m][rhsIdx] * 10000) / 10000,
+            maxZ: Math.round(this.tableau[m][rhsIdx][0] * 10000) / 10000,
             history: this.history, numVars: n, numConstraints: this.numConstraints,
+            M: this.M
         };
     }
 
-
-    static solveInteger(objective, constraints, bounds, optType = 'max') {
+    static solveInteger(objective, constraints, bounds, signs, optType = 'max') {
         const EPS = 1e-7;
 
         const frac = (a) => {
-            const fl = Math.floor(a + EPS);
-            let f = a - fl;
+            const val = a;
+            const fl = Math.floor(val + EPS);
+            let f = val - fl;
             if (f < EPS) f = 0;
             if (f > 1 - EPS) f = 0;
             return f;
@@ -138,7 +260,7 @@ class SimplexModel {
 
         const isInt = (v) => Math.abs(v - Math.round(v)) < EPS;
 
-        const model = new SimplexModel(objective, constraints, bounds, optType);
+        const model = new SimplexModel(objective, constraints, bounds, signs, optType);
         const relaxedResult = model.solve();
 
         if (relaxedResult.status !== 'success') {
@@ -165,16 +287,14 @@ class SimplexModel {
             };
         }
 
-        let tableau = model.tableau.map(r => [...r]);
+        let tableau = model.tableau.map(r => r.map(c => [...c]));
         let basis = [...model.basis];
         let m = basis.length;
 
         const branchLog = [];
         const gomoryHistory = [];
-        let cutIteration = 0;
 
         const relaxedVals = [];
-
         for (let j = 0; j < n; j++) relaxedVals.push(relaxedResult.optimalPlan[`x${j + 1}`] || 0);
         
         branchLog.push(`Неперервний оптимум: (${relaxedVals.map(v => v.toFixed(4)).join('; ')})`);
@@ -182,7 +302,7 @@ class SimplexModel {
 
         gomoryHistory.push({
             iteration: 'Початкова (оптимальна симплекс-таблиця)',
-            tableau: tableau.map(r => [...r]),
+            tableau: tableau.map(r => r.map(c => [...c])),
             basis: [...basis],
             pivotRow: null, pivotCol: null, entering: null, leaving: null
         });
@@ -196,7 +316,7 @@ class SimplexModel {
             let maxFrac = 0;
             let cutRow = -1;
             for (let i = 0; i < m; i++) {
-                const rhsVal = tableau[i][rhsIdx];
+                const rhsVal = tableau[i][rhsIdx][0];
                 const f = frac(rhsVal);
                 if (f > EPS && basis[i] < n) {
                     if (f > maxFrac) { maxFrac = f; cutRow = i; }
@@ -205,7 +325,7 @@ class SimplexModel {
 
             if (cutRow === -1) {
                 for (let i = 0; i < m; i++) {
-                    const rhsVal = tableau[i][rhsIdx];
+                    const rhsVal = tableau[i][rhsIdx][0];
                     const f = frac(rhsVal);
                     if (f > EPS) {
                         if (f > maxFrac) { maxFrac = f; cutRow = i; }
@@ -219,7 +339,7 @@ class SimplexModel {
             }
 
             const basisVarName = `X${basis[cutRow] + 1}`;
-            const rhsValue = tableau[cutRow][rhsIdx];
+            const rhsValue = tableau[cutRow][rhsIdx][0];
             branchLog.push(`\nВідсічення #${cutNum}`);
             branchLog.push(`Обрано рядок: ${basisVarName} = ${rhsValue.toFixed(4)}, дробова частина = ${maxFrac.toFixed(4)}`);
 
@@ -227,20 +347,19 @@ class SimplexModel {
 
             for (let i = 0; i <= m; i++) {
                 const rhs = tableau[i][rhsIdx];
-                tableau[i][rhsIdx] = 0;
+                tableau[i][rhsIdx] = [0, 0];
                 tableau[i].push(rhs);
             }
 
             const newCols = tableau[0].length;
             const newRhsIdx = newCols - 1;
 
-            // рядок відсічення
-            const cutRowData = new Array(newCols).fill(0);
+            const cutRowData = [];
             for (let j = 0; j < newCols; j++) {
                 if (j === newSlackIdx) {
-                    cutRowData[j] = 1;
+                    cutRowData.push([1, 0]);
                 } else {
-                    cutRowData[j] = -frac(tableau[cutRow][j]);
+                    cutRowData.push([-frac(tableau[cutRow][j][0]), 0]);
                 }
             }
 
@@ -254,12 +373,11 @@ class SimplexModel {
 
             gomoryHistory.push({
                 iteration: `Відсічення #${cutNum} (до двоїстого симплексу)`,
-                tableau: tableau.map(r => [...r]),
+                tableau: tableau.map(r => r.map(c => [...c])),
                 basis: [...basis],
                 pivotRow: null, pivotCol: null, entering: null, leaving: null
             });
 
-            // двоїстий симплекс
             let dualIter = 0;
             const MAX_DUAL_ITERS = 200;
 
@@ -271,8 +389,8 @@ class SimplexModel {
                 let pivotRow = -1;
                 let minRhs = -EPS;
                 for (let i = 0; i < m; i++) {
-                    if (tableau[i][currentRhs] < minRhs) {
-                        minRhs = tableau[i][currentRhs];
+                    if (tableau[i][currentRhs][0] < minRhs) {
+                        minRhs = tableau[i][currentRhs][0];
                         pivotRow = i;
                     }
                 }
@@ -284,10 +402,10 @@ class SimplexModel {
                 let minRatio = Infinity;
 
                 for (let j = 0; j < currentCols - 1; j++) {
-                    if (tableau[pivotRow][j] < -EPS) {
+                    if (tableau[pivotRow][j][0] < -EPS) {
                         const delta = zRowCurrent[j];
-                        if (delta >= -EPS) {
-                            const ratio = Math.abs(delta) / Math.abs(tableau[pivotRow][j]);
+                        if (delta[0] >= -EPS) {
+                            const ratio = Math.abs(delta[0]) / Math.abs(tableau[pivotRow][j][0]);
                             if (ratio < minRatio - EPS) { minRatio = ratio; pivotCol = j; }
                         }
                     }
@@ -300,26 +418,33 @@ class SimplexModel {
 
                 const entering = `X${pivotCol + 1}`;
                 const leaving = `X${basis[pivotRow] + 1}`;
-                branchLog.push(`Двоїстий крок: ведучий елемент [${pivotRow}, ${pivotCol}] = ${tableau[pivotRow][pivotCol].toFixed(4)}, ${entering} ↔ ${leaving}`);
+                branchLog.push(`Двоїстий крок: ведучий елемент [${pivotRow}, ${pivotCol}] = ${tableau[pivotRow][pivotCol][0].toFixed(4)}, ${entering} ↔ ${leaving}`);
 
                 gomoryHistory[gomoryHistory.length - 1].pivotRow = pivotRow;
                 gomoryHistory[gomoryHistory.length - 1].pivotCol = pivotCol;
                 gomoryHistory[gomoryHistory.length - 1].entering = entering;
                 gomoryHistory[gomoryHistory.length - 1].leaving = leaving;
 
-                const pe = tableau[pivotRow][pivotCol];
-                for (let j = 0; j < currentCols; j++) tableau[pivotRow][j] /= pe;
+                const pe = tableau[pivotRow][pivotCol][0];
+                for (let j = 0; j < currentCols; j++) {
+                    tableau[pivotRow][j] = [tableau[pivotRow][j][0] / pe, tableau[pivotRow][j][1] / pe];
+                }
                 for (let i = 0; i <= m; i++) {
                     if (i === pivotRow) continue;
                     const f = tableau[i][pivotCol];
-                    if (Math.abs(f) < 1e-12) continue;
-                    for (let j = 0; j < currentCols; j++) tableau[i][j] -= f * tableau[pivotRow][j];
+                    if (Math.abs(f[0]) < 1e-12 && Math.abs(f[1]) < 1e-12) continue;
+                    for (let j = 0; j < currentCols; j++) {
+                        tableau[i][j] = [
+                            tableau[i][j][0] - f[0] * tableau[pivotRow][j][0],
+                            tableau[i][j][1] - f[0] * tableau[pivotRow][j][1] - f[1] * tableau[pivotRow][j][0]
+                        ];
+                    }
                 }
                 basis[pivotRow] = pivotCol;
 
                 gomoryHistory.push({
                     iteration: `Відсічення #${cutNum}, двоїстий крок ${dualIter}`,
-                    tableau: tableau.map(r => [...r]),
+                    tableau: tableau.map(r => r.map(c => [...c])),
                     basis: [...basis],
                     pivotRow: null, pivotCol: null, entering: null, leaving: null
                 });
@@ -331,7 +456,7 @@ class SimplexModel {
         const intSolution = new Array(n).fill(0);
         for (let i = 0; i < m; i++) {
             if (basis[i] < n) {
-                intSolution[basis[i]] = Math.round(tableau[i][finalRhs]);
+                intSolution[basis[i]] = Math.round(tableau[i][finalRhs][0]);
             }
         }
 
@@ -347,6 +472,8 @@ class SimplexModel {
 
         const planStr = Object.entries(integerPlan).map(([k, v]) => `${k} = ${v}`).join(', ');
         branchLog.push(`\nОптимальний цілочисельний розв'язок: ${planStr}, F = ${integerZ}`);
+
+        relaxedResult.M = model.M;
 
         return {
             status: 'success',

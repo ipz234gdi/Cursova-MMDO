@@ -19,15 +19,24 @@ class SimplexView {
         ).join('');
 
         const rows = wagonTypes.map((w, wi) => {
-            const parkCell = `<td><input type="number" class="inp-park" data-wi="${wi}" value="${parkData[wi] || 0}" min="0"></td>`;
+            const parkCell = `<td><input type="number" class="inp-park" data-wi="${wi}" value="${parkData[wi] || 0}"></td>`;
             const trainCells = trainTypes.map((_, ti) => {
                 const val = (tableData[wi] && tableData[wi][ti] !== undefined) ? tableData[wi][ti] : 0;
-                return `<td><input type="number" class="inp-cell" data-wi="${wi}" data-ti="${ti}" value="${val}" min="0"></td>`;
+                return `<td><input type="number" class="inp-cell" data-wi="${wi}" data-ti="${ti}" value="${val}"></td>`;
             }).join('');
+            const signVal = (state.constraintSigns && state.constraintSigns[wi]) || 'le';
+            const signSelect = `<td>
+                <select class="inp-sign" data-wi="${wi}">
+                    <option value="le" ${signVal === 'le' ? 'selected' : ''}>≤</option>
+                    <option value="ge" ${signVal === 'ge' ? 'selected' : ''}>≥</option>
+                    <option value="eq" ${signVal === 'eq' ? 'selected' : ''}>=</option>
+                </select>
+            </td>`;
             return `<tr>
                 <td><div class="cell-with-del"><input type="text" class="inp-wagon-name" data-wi="${wi}" value="${w}">
                     <button class="btn-del-row" data-wi="${wi}" title="Видалити">×</button></div></td>
                 ${trainCells}
+                ${signSelect}
                 ${parkCell}
             </tr>`;
         }).join('');
@@ -77,6 +86,7 @@ class SimplexView {
                             <tr>
                                 <th class="th-wagon"><input type="text" class="inp-header inp-header-wagon" value="${state.headerWagon || 'Вагон'}"></th>
                                 ${thTrains}
+                                <th></th>
                                 <th><input type="text" class="inp-header inp-header-park" value="${state.headerPark || 'Парк'}"></th>
                             </tr>
                         </thead>
@@ -115,16 +125,24 @@ class SimplexView {
 
     /* Результат */
     renderResult(result, intResult, objective, optType = 'max') {
+        if (result.status === 'infeasible') {
+            this.main.innerHTML = `
+                <div class="error-wrap">
+                    <div class="error-icon">!</div>
+                    <p>Задача не має допустимих розв'язків (несумісна система обмежень).</p>
+                </div>`;
+            return;
+        }
         if (result.status !== 'success') {
             this.main.innerHTML = `
                 <div class="error-wrap">
                     <div class="error-icon">!</div>
-                    <p>Задача не має оптимального розв'язку.</p>
+                    <p>Задача не має оптимального розв'язку (цільова функція необмежена).</p>
                 </div>`;
             return;
         }
 
-        const { optimalPlan, maxZ, history, numVars, numConstraints } = result;
+        const { optimalPlan, maxZ, history, numVars, numConstraints, M } = result;
         const obj = objective || [];
 
         let cardsHtml = `
@@ -173,11 +191,10 @@ class SimplexView {
                 return `<div class="int-log-line">${txt}</div>`;
             }).join('');
 
-            // Рендер таблиць ітерацій Гоморі
             const gomorySteps = intResult.gomoryHistory || [];
             const gomoryTablesHtml = gomorySteps.length > 0
                 ? gomorySteps.map((step, idx) =>
-                    this._renderGomoryIteration(step, numVars, obj, idx === gomorySteps.length - 1)
+                    this._renderGomoryIteration(step, numVars, obj, idx === gomorySteps.length - 1, M)
                 ).join('')
                 : '';
 
@@ -210,7 +227,7 @@ class SimplexView {
 
         const lastIdx = history.length - 1;
         const iterHtml = history
-            .map((step, idx) => this._renderIteration(step, numVars, numConstraints, obj, idx === lastIdx))
+            .map((step, idx) => this._renderIteration(step, numVars, numConstraints, obj, idx === lastIdx, M))
             .join('');
 
         this.main.innerHTML = `
@@ -243,7 +260,7 @@ class SimplexView {
         return 'ій';
     }
 
-    _renderIteration(step, numVars, numConstraints, objective, isLast) {
+    _renderIteration(step, numVars, numConstraints, objective, isLast, M) {
         const { iteration, tableau, basis, pivotRow, pivotCol, entering, leaving } = step;
         const n = numVars, m = numConstraints, cols = tableau[0].length;
 
@@ -280,7 +297,7 @@ class SimplexView {
             let cells = '';
             cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''}">${cVal}</td>`;
             cells += `<td class="tc tc--basis${isOptBasis ? ' tc--pivot' : ''}">${bName}</td>`;
-            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''} tc--rhs">${this._fmt(tableau[ri][cols - 1])}</td>`;
+            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''} tc--rhs">${this._fmt(tableau[ri][cols - 1], M)}</td>`;
 
             for (let ci = 0; ci < cols - 1; ci++) {
                 const isPE = hasPivot && ri === pivotRow && ci === pivotCol;
@@ -290,16 +307,16 @@ class SimplexView {
                 if (isPE) cls += ' tc--pivot';
                 else if (isPR) cls += ' tc--prow';
                 else if (isPC) cls += ' tc--pcol';
-                cells += `<td class="${cls}">${this._fmt(tableau[ri][ci])}</td>`;
+                cells += `<td class="${cls}">${this._fmt(tableau[ri][ci], M)}</td>`;
             }
             bodyRows.push(`<tr>${cells}</tr>`);
         }
 
         const zRow = tableau[m];
         let deltaRow = `<td class="tc tc--z"></td><td class="tc tc--z tc--basis">Δ</td>`;
-        deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1])}</td>`;
+        deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1], M)}</td>`;
         for (let ci = 0; ci < cols - 1; ci++) {
-            deltaRow += `<td class="tc tc--z">${this._fmt(zRow[ci])}</td>`;
+            deltaRow += `<td class="tc tc--z">${this._fmt(zRow[ci], M)}</td>`;
         }
         bodyRows.push(`<tr class="tr--z">${deltaRow}</tr>`);
 
@@ -313,7 +330,7 @@ class SimplexView {
                     <table class="stab">
                         <thead>
                             <tr>
-                                <th></th><th>C</th><th>−</th>
+                                <th></th><th>C</th><th>-</th>
                                 ${cRow.map(c => `<th>${c}</th>`).join('')}
                             </tr>
                             <tr>
@@ -328,7 +345,7 @@ class SimplexView {
     }
 
     // Рендер однієї ітерації таблиці Гоморі
-    _renderGomoryIteration(step, numVars, objective, isLast) {
+    _renderGomoryIteration(step, numVars, objective, isLast, M) {
         const { iteration, tableau, basis, pivotRow, pivotCol, entering, leaving } = step;
         const n = numVars;
         const m = basis.length;
@@ -363,7 +380,7 @@ class SimplexView {
             let cells = '';
             cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''}">${cVal}</td>`;
             cells += `<td class="tc tc--basis${isOptBasis ? ' tc--pivot' : ''}">${bName}</td>`;
-            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''} tc--rhs">${this._fmt(tableau[ri][cols - 1])}</td>`;
+            cells += `<td class="tc${isOptBasis ? ' tc--pivot' : ''} tc--rhs">${this._fmt(tableau[ri][cols - 1], M)}</td>`;
 
             for (let ci = 0; ci < cols - 1; ci++) {
                 const isPE = hasPivot && ri === pivotRow && ci === pivotCol;
@@ -373,17 +390,16 @@ class SimplexView {
                 if (isPE) cls += ' tc--pivot';
                 else if (isPR) cls += ' tc--prow';
                 else if (isPC) cls += ' tc--pcol';
-                cells += `<td class="${cls}">${this._fmt(tableau[ri][ci])}</td>`;
+                cells += `<td class="${cls}">${this._fmt(tableau[ri][ci], M)}</td>`;
             }
             bodyRows.push(`<tr>${cells}</tr>`);
         }
 
-        // Рядок оцінок дельта
         const zRow = tableau[m];
         let deltaRow = `<td class="tc tc--z"></td><td class="tc tc--z tc--basis">Δ</td>`;
-        deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1])}</td>`;
+        deltaRow += `<td class="tc tc--z tc--rhs">${this._fmt(zRow[cols - 1], M)}</td>`;
         for (let ci = 0; ci < cols - 1; ci++) {
-            deltaRow += `<td class="tc tc--z">${this._fmt(zRow[ci])}</td>`;
+            deltaRow += `<td class="tc tc--z">${this._fmt(zRow[ci], M)}</td>`;
         }
         bodyRows.push(`<tr class="tr--z">${deltaRow}</tr>`);
 
@@ -397,7 +413,7 @@ class SimplexView {
                     <table class="stab">
                         <thead>
                             <tr>
-                                <th></th><th>C</th><th>−</th>
+                                <th></th><th>C</th><th>-</th>
                                 ${cRow.map(c => `<th>${c}</th>`).join('')}
                             </tr>
                             <tr>
@@ -412,8 +428,35 @@ class SimplexView {
     }
 
     _fmt(val) {
+        if (Array.isArray(val)) {
+            return this._fmtAlgebraic(val[0], val[1]);
+        }
+        return this._fmtReal(val);
+    }
+
+    _fmtAlgebraic(a, b) {
+        if (Math.abs(b) < 1e-9) return this._fmtReal(a);
+
+        let mPart = '';
+        if (Math.abs(b - 1) < 1e-9) mPart = 'M';
+        else if (Math.abs(b + 1) < 1e-9) mPart = '-M';
+        else {
+            const absB = Math.abs(b);
+            const mSign = b < 0 ? '-' : '';
+            mPart = `${mSign}${this._fmtReal(absB)}M`;
+        }
+
+        if (Math.abs(a) < 1e-9) return mPart;
+
+        const absA = Math.abs(a);
+        const rStr = this._fmtReal(absA);
+        const aSign = a < 0 ? '-' : '+';
+        return `${mPart} ${aSign} ${rStr}`;
+    }
+
+    _fmtReal(val) {
         if (Math.abs(val) < 1e-9) return '0';
-        const sign = val < 0 ? '−' : '';
+        const sign = val < 0 ? '-' : '';
         const absVal = Math.abs(val);
         if (Math.abs(absVal - Math.round(absVal)) < 1e-7) return (Math.round(val)).toString();
         for (const d of [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20]) {
