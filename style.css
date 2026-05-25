@@ -126,6 +126,29 @@ body {
     font-weight: 700;
 }
 
+.obj-opt-type {
+    color: var(--primary-color);
+    font-weight: 700;
+    font-size: 14px;
+    font-family: inherit;
+    background: rgba(90, 185, 234, 0.1);
+    border: 1px solid rgba(90, 185, 234, 0.3);
+    border-radius: 6px;
+    padding: 2px 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.obj-opt-type:hover {
+    background: rgba(90, 185, 234, 0.2);
+}
+
+.obj-opt-type:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(90, 185, 234, 0.15);
+}
+
 .obj-z {
     font-weight: 700;
 }

@@ -5,7 +5,8 @@ class SimplexView {
     }
 
     renderSidebar(state) {
-        const { trainTypes, wagonTypes, tableData, passengers, parkData, extraConstraints } = state;
+        const { trainTypes, wagonTypes, tableData, passengers, parkData, extraConstraints, optimizationType } = state;
+        const optType = optimizationType || 'max';
         const n = trainTypes.length;
 
         const objCoeffs = new Array(n).fill(0);
@@ -69,7 +70,10 @@ class SimplexView {
                     <span class="obj-eq">=</span>
                     <span class="obj-expr">${objTerms || '—'}</span>
                     <span class="sb-subtitle">→</span>
-                    <span class="obj-kw">max</span>
+                    <select class="obj-opt-type" id="optType">
+                        <option value="max" ${optType === 'max' ? 'selected' : ''}>max</option>
+                        <option value="min" ${optType === 'min' ? 'selected' : ''}>min</option>
+                    </select>
                 </div>
             </div>
 
@@ -95,13 +99,6 @@ class SimplexView {
                 <button class="btn-add" id="btnAddTrain">+ Потяг</button>
             </div>
 
-            <div class="sb-section">
-                <div class="sb-label">Додаткові обмеження</div>
-                <div class="extra-constraints" id="extraConstraints">${ecHtml}</div>
-            </div>
-            <div class="sb-add-row">
-                <button class="btn-add" id="btnAddEC">+ Обмеження</button>
-            </div>
 
             <button class="solve-btn" id="solveBtn">
                 <span>Розв'язати</span>
@@ -126,7 +123,7 @@ class SimplexView {
     }
 
     /* Результат */
-    renderResult(result, intResult, objective) {
+    renderResult(result, intResult, objective, optType = 'max') {
         if (result.status !== 'success') {
             this.main.innerHTML = `
                 <div class="error-wrap">
@@ -142,7 +139,7 @@ class SimplexView {
         let cardsHtml = `
             <div class="result-cards">
                 <div class="rcard rcard--primary">
-                    <div class="rcard-label">Максимум F (симплекс)</div>
+                    <div class="rcard-label">${optType === 'min' ? 'Мінімум' : 'Максимум'} F (симплекс)</div>
                     <div class="rcard-value">${maxZ.toLocaleString('uk-UA')}</div>
                     <div class="rcard-hint">пасажирів</div>
                 </div>
@@ -196,7 +193,7 @@ class SimplexView {
             intHtml = `
             <div class="result-cards">
                 <div class="rcard rcard--integer">
-                    <div class="rcard-label">Максимум F (цілочисельний)</div>
+                    <div class="rcard-label">${optType === 'min' ? 'Мінімум' : 'Максимум'} F (цілочисельний)</div>
                     <div class="rcard-value">${intResult.integerZ.toLocaleString('uk-UA')}</div>
                     <div class="rcard-hint">пасажирів</div>
                 </div>

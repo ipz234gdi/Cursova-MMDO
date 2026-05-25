@@ -14,6 +14,7 @@ class SimplexController {
             parkData: [12, 18, 89, 79, 35],
             passengers: [0, 0, 58, 40, 32],
             extraConstraints: [],
+            optimizationType: 'max',
         };
     }
 
@@ -28,6 +29,11 @@ class SimplexController {
 
     _attachEvents() {
         this.view.attachSolveListener(() => this._handleSolve());
+
+        const optTypeSelect = document.getElementById('optType');
+        if (optTypeSelect) optTypeSelect.addEventListener('change', () => {
+            this.state.optimizationType = optTypeSelect.value;
+        });
 
         const enforceNonNegative = (inp) => {
             let val = parseFloat(inp.value) || 0;
@@ -220,7 +226,9 @@ class SimplexController {
             try {
                 const objective = this._buildObjective();
                 const { constraints, bounds } = this._buildConstraintsAndBounds();
-                console.log('Objective:', objective);
+                const isMin = this.state.optimizationType === 'min';
+                const solveObjective = isMin ? objective.map(c => -c) : objective;
+                console.log('Objective:', objective, isMin ? '(min, inverted)' : '(max)');
                 console.log('Constraints:', constraints, 'Bounds:', bounds);
 
                 // const model = new SimplexModel(objective, constraints, bounds);
@@ -229,16 +237,20 @@ class SimplexController {
 
                 let intResult = null;
                 if (true) {
-                    console.log('Starting Branch and Bound...');
-                    intResult = SimplexModel.solveInteger(objective, constraints, bounds);
-                    console.log('BnB result:', intResult.status, intResult.integerPlan, 'Z=', intResult.integerZ);
+                    intResult = SimplexModel.solveInteger(solveObjective, constraints, bounds);
+                    console.log('Integer result:', intResult.status, intResult.integerPlan, 'Z=', intResult.integerZ);
                 }
 
                 const result = intResult.relaxedResult || intResult;
 
-                console.log('Rendering result...');
-                this.view.renderResult(result, intResult, objective);
-                console.log('Render complete');
+                if (isMin && result.status === 'success') {
+                    result.maxZ = -result.maxZ;
+                }
+                if (isMin && intResult && intResult.status === 'success') {
+                    intResult.integerZ = -intResult.integerZ;
+                }
+
+                this.view.renderResult(result, intResult, objective, this.state.optimizationType);
 
                 if (result.status === 'success' && !skipHistorySave) {
                     SimplexModel.saveToHistory({
