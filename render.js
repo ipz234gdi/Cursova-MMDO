@@ -5,22 +5,14 @@ class SimplexView {
     }
 
     renderSidebar(state) {
-        const { trainTypes, wagonTypes, tableData, passengers, parkData, extraConstraints, optimizationType } = state;
+        const { trainTypes, wagonTypes, tableData, objectiveCoeffs, parkData, extraConstraints, optimizationType } = state;
         const optType = optimizationType || 'max';
         const n = trainTypes.length;
 
-        const objCoeffs = new Array(n).fill(0);
-        for (let t = 0; t < n; t++) {
-            for (let w = 0; w < wagonTypes.length; w++) {
-                const coeff = (tableData[w] && tableData[w][t]) || 0;
-                const pass = passengers[w] || 0;
-                objCoeffs[t] += coeff * pass;
-            }
-        }
+        const objCoeffs = objectiveCoeffs || new Array(n).fill(0);
         const objTerms = objCoeffs.map((c, i) => {
-            if (c === 0) return null;
-            return `${c}<span class="var-sub">x<sub>${i + 1}</sub></span>`;
-        }).filter(Boolean).join(' + ');
+            return `<input type="number" class="inp-obj-coeff" data-ti="${i}" value="${c}"> <span class="var-sub">x<sub>${i + 1}</sub></span>`;
+        }).join(' + ');
 
         const thTrains = trainTypes.map((t, ti) =>
             `<th class="th-train"><div class="cell-with-del"><input type="text" class="inp-train-name" data-ti="${ti}" value="${t}"> <button class="btn-del-col" data-col="${ti}" title="Видалити">×</button></div></th>`
@@ -32,11 +24,11 @@ class SimplexView {
                 const val = (tableData[wi] && tableData[wi][ti] !== undefined) ? tableData[wi][ti] : 0;
                 return `<td><input type="number" class="inp-cell" data-wi="${wi}" data-ti="${ti}" value="${val}" min="0"></td>`;
             }).join('');
-            const passCell = `<td><input type="number" class="inp-pass" data-wi="${wi}" value="${passengers[wi] || 0}" min="0"></td>`;
             return `<tr>
                 <td><div class="cell-with-del"><input type="text" class="inp-wagon-name" data-wi="${wi}" value="${w}">
                     <button class="btn-del-row" data-wi="${wi}" title="Видалити">×</button></div></td>
-                ${parkCell}${trainCells}${passCell}
+                ${trainCells}
+                ${parkCell}
             </tr>`;
         }).join('');
 
@@ -83,10 +75,9 @@ class SimplexView {
                     <table class="data-table" id="dataTable">
                         <thead>
                             <tr>
-                                <th class="th-wagon">Вагон</th>
-                                <th>Парк</th>
+                                <th class="th-wagon"><input type="text" class="inp-header inp-header-wagon" value="${state.headerWagon || 'Вагон'}"></th>
                                 ${thTrains}
-                                <th>К-сть пасажирів</th>
+                                <th><input type="text" class="inp-header inp-header-park" value="${state.headerPark || 'Парк'}"></th>
                             </tr>
                         </thead>
                         <tbody>${rows}</tbody>

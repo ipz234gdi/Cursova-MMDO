@@ -1,5 +1,5 @@
 class SimplexModel {
-    constructor(objective, constraints, bounds) {
+    constructor(objective, constraints, bounds, optType = 'max') {
         this.objective = [...objective];
         this.constraints = constraints.map(r => [...r]);
         this.bounds = [...bounds];
@@ -8,6 +8,7 @@ class SimplexModel {
         this.tableau = [];
         this.basis = [];
         this.history = [];
+        this.optType = optType;
     }
 
     getVarName(idx) {
@@ -32,16 +33,21 @@ class SimplexModel {
         this.basis = Array.from({ length: m }, (_, i) => n + i);
     }
 
-    // стовпець з найменшим від'ємним
     _getPivotColumn() {
         const zRow = this.tableau[this.tableau.length - 1];
-        let minVal = -1e-10, minIdx = -1;
-
-        for (let j = 0; j < zRow.length - 1; j++) {
-            if (zRow[j] < minVal) { minVal = zRow[j]; minIdx = j; }
+        if (this.optType === 'min') {
+            let maxVal = 1e-10, maxIdx = -1;
+            for (let j = 0; j < zRow.length - 1; j++) {
+                if (zRow[j] > maxVal) { maxVal = zRow[j]; maxIdx = j; }
+            }
+            return maxIdx;
+        } else {
+            let minVal = -1e-10, minIdx = -1;
+            for (let j = 0; j < zRow.length - 1; j++) {
+                if (zRow[j] < minVal) { minVal = zRow[j]; minIdx = j; }
+            }
+            return minIdx;
         }
-
-        return minIdx;
     }
 
     // правило мінімального відношення
@@ -119,7 +125,7 @@ class SimplexModel {
     }
 
 
-    static solveInteger(objective, constraints, bounds) {
+    static solveInteger(objective, constraints, bounds, optType = 'max') {
         const EPS = 1e-7;
 
         const frac = (a) => {
@@ -132,7 +138,7 @@ class SimplexModel {
 
         const isInt = (v) => Math.abs(v - Math.round(v)) < EPS;
 
-        const model = new SimplexModel(objective, constraints, bounds);
+        const model = new SimplexModel(objective, constraints, bounds, optType);
         const relaxedResult = model.solve();
 
         if (relaxedResult.status !== 'success') {

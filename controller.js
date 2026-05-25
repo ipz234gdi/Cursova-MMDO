@@ -12,9 +12,11 @@ class SimplexController {
                 [4, 2],
             ],
             parkData: [12, 18, 89, 79, 35],
-            passengers: [0, 0, 58, 40, 32],
+            objectiveCoeffs: [658, 688],
             extraConstraints: [],
             optimizationType: 'max',
+            headerWagon: 'Вагон',
+            headerPark: 'Парк',
         };
     }
 
@@ -52,21 +54,12 @@ class SimplexController {
                 if (!this.state.tableData[wi]) this.state.tableData[wi] = [];
 
                 this.state.tableData[wi][ti] = enforceNonNegative(inp);
-
-                this._refreshObjective();
             });
         });
 
         document.querySelectorAll('.inp-park').forEach(inp => {
             inp.addEventListener('change', () => {
                 this.state.parkData[+inp.dataset.wi] = enforceNonNegative(inp);
-            });
-        });
-
-        document.querySelectorAll('.inp-pass').forEach(inp => {
-            inp.addEventListener('change', () => {
-                this.state.passengers[+inp.dataset.wi] = enforceNonNegative(inp);
-                this._refreshObjective();
             });
         });
 
@@ -89,7 +82,6 @@ class SimplexController {
                 this.state.wagonTypes.splice(wi, 1);
                 this.state.tableData.splice(wi, 1);
                 this.state.parkData.splice(wi, 1);
-                this.state.passengers.splice(wi, 1);
                 this._render();
             });
         });
@@ -100,6 +92,7 @@ class SimplexController {
                 if (this.state.trainTypes.length <= 1) return;
                 this.state.trainTypes.splice(ti, 1);
                 this.state.tableData.forEach(row => row.splice(ti, 1));
+                this.state.objectiveCoeffs.splice(ti, 1);
                 this._render();
             });
         });
@@ -109,7 +102,6 @@ class SimplexController {
             this.state.wagonTypes.push('Новий');
             this.state.tableData.push(new Array(this.state.trainTypes.length).fill(0));
             this.state.parkData.push(0);
-            this.state.passengers.push(0);
             this._render();
         });
 
@@ -117,6 +109,7 @@ class SimplexController {
         if (btnAddT) btnAddT.addEventListener('click', () => {
             this.state.trainTypes.push(`Тип ${this.state.trainTypes.length + 1}`);
             this.state.tableData.forEach(row => row.push(0));
+            this.state.objectiveCoeffs.push(0);
             this._render();
         });
 
@@ -151,29 +144,31 @@ class SimplexController {
 
         const btnHist = document.getElementById('btnHistory');
         if (btnHist) btnHist.addEventListener('click', () => this._showHistory());
-    }
 
-    _refreshObjective() {
-        const n = this.state.trainTypes.length;
-        const objExpr = document.querySelector('.obj-expr');
-        if (!objExpr) return;
-        const obj = this._buildObjective();
-        const terms = obj.map((c, i) => {
-            if (c === 0) return null;
-            return `${c}<span class="var-sub">x<sub>${i + 1}</sub></span>`;
-        }).filter(Boolean).join(' + ');
-        objExpr.innerHTML = terms || '—';
+        const inpHW = document.querySelector('.inp-header-wagon');
+        if (inpHW) inpHW.addEventListener('change', () => {
+            this.state.headerWagon = inpHW.value;
+        });
+
+        const inpHPrk = document.querySelector('.inp-header-park');
+        if (inpHPrk) inpHPrk.addEventListener('change', () => {
+            this.state.headerPark = inpHPrk.value;
+        });
+
+        document.querySelectorAll('.inp-obj-coeff').forEach(inp => {
+            inp.addEventListener('change', () => {
+                const ti = +inp.dataset.ti;
+                const newCoeff = parseFloat(inp.value) || 0;
+                this.state.objectiveCoeffs[ti] = newCoeff;
+            });
+        });
     }
 
     _buildObjective() {
         const n = this.state.trainTypes.length;
         const obj = new Array(n).fill(0);
         for (let t = 0; t < n; t++) {
-            for (let w = 0; w < this.state.wagonTypes.length; w++) {
-                const coeff = (this.state.tableData[w] && this.state.tableData[w][t]) || 0;
-                const pass = this.state.passengers[w] || 0;
-                obj[t] += coeff * pass;
-            }
+            obj[t] = this.state.objectiveCoeffs[t] || 0;
         }
         return obj;
     }
@@ -216,7 +211,6 @@ class SimplexController {
         return { constraints, bounds };
     }
 
-    /* Розв'язання */
     _handleSolve(skipHistorySave = false) {
         const btn = document.getElementById('solveBtn');
         if (btn) { btn.disabled = true; btn.classList.add('btn--running'); }
@@ -226,29 +220,17 @@ class SimplexController {
             try {
                 const objective = this._buildObjective();
                 const { constraints, bounds } = this._buildConstraintsAndBounds();
-                const isMin = this.state.optimizationType === 'min';
-                const solveObjective = isMin ? objective.map(c => -c) : objective;
-                console.log('Objective:', objective, isMin ? '(min, inverted)' : '(max)');
+                const solveObjective = objective;
+                console.log('Objective:', objective, this.state.optimizationType);
                 console.log('Constraints:', constraints, 'Bounds:', bounds);
-
-                // const model = new SimplexModel(objective, constraints, bounds);
-                // const result = model.solve();
-                // console.log('Simplex result:', result.status, result.optimalPlan, 'Z=', result.maxZ);
 
                 let intResult = null;
                 if (true) {
-                    intResult = SimplexModel.solveInteger(solveObjective, constraints, bounds);
+                    intResult = SimplexModel.solveInteger(solveObjective, constraints, bounds, this.state.optimizationType);
                     console.log('Integer result:', intResult.status, intResult.integerPlan, 'Z=', intResult.integerZ);
                 }
 
                 const result = intResult.relaxedResult || intResult;
-
-                if (isMin && result.status === 'success') {
-                    result.maxZ = -result.maxZ;
-                }
-                if (isMin && intResult && intResult.status === 'success') {
-                    intResult.integerZ = -intResult.integerZ;
-                }
 
                 this.view.renderResult(result, intResult, objective, this.state.optimizationType);
 
@@ -258,7 +240,6 @@ class SimplexController {
                         wagonTypes: [...this.state.wagonTypes],
                         tableData: this.state.tableData.map(r => [...r]),
                         parkData: [...this.state.parkData],
-                        passengers: [...this.state.passengers],
                         extraConstraints: JSON.parse(JSON.stringify(this.state.extraConstraints)),
                         objective,
                         maxZ: result.maxZ,
@@ -281,7 +262,6 @@ class SimplexController {
         }, 350);
     }
 
-    /* Історія */
     _showHistory() {
         const data = SimplexModel.loadHistory();
         this.view.renderHistoryPanel(
@@ -295,7 +275,7 @@ class SimplexController {
                     if (entry.wagonTypes) this.state.wagonTypes = entry.wagonTypes;
                     if (entry.tableData) this.state.tableData = entry.tableData;
                     if (entry.parkData) this.state.parkData = entry.parkData;
-                    if (entry.passengers) this.state.passengers = entry.passengers;
+                    if (entry.objective) this.state.objectiveCoeffs = entry.objective;
                     if (entry.extraConstraints) this.state.extraConstraints = entry.extraConstraints;
                 }
                 this._render();

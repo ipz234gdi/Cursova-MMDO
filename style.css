@@ -200,7 +200,8 @@ body {
     color: var(--primary-color);
 }
 
-.data-table th .inp-train-name {
+.data-table th .inp-train-name,
+.data-table th .inp-header {
     max-width: 80px;
     font-weight: 600;
     font-size: 11px;
@@ -210,15 +211,57 @@ body {
     padding: 4px 6px;
     border-radius: 6px;
     font-family: inherit;
-    text-align: left;
+    text-align: center;
     transition: all 0.2s;
 }
 
-.data-table th .inp-train-name:focus {
+.data-table th .inp-header-wagon {
+    text-align: left;
+    max-width: 90px;
+}
+
+.data-table th .inp-header-passengers {
+    max-width: 110px;
+}
+
+.data-table th .inp-train-name:focus,
+.data-table th .inp-header:focus {
     border-color: var(--primary-color);
     outline: none;
     background: #fff;
     box-shadow: 0 0 0 2px rgba(90, 185, 234, 0.15);
+}
+
+.inp-obj-coeff {
+    width: 50px;
+    font-weight: 600;
+    font-size: 13px;
+    background: rgba(90, 185, 234, 0.05);
+    border: 1px dashed rgba(90, 185, 234, 0.4);
+    color: var(--text-color);
+    padding: 2px 4px;
+    border-radius: 6px;
+    font-family: inherit;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.inp-obj-coeff:focus {
+    border-color: var(--primary-color);
+    border-style: solid;
+    outline: none;
+    background: #fff;
+    box-shadow: 0 0 0 2px rgba(90, 185, 234, 0.15);
+}
+
+.inp-obj-coeff::-webkit-outer-spin-button,
+.inp-obj-coeff::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.inp-obj-coeff[type=number] {
+    -moz-appearance: textfield;
 }
 
 .data-table th.th-wagon {
