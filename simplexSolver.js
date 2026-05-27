@@ -236,14 +236,30 @@ class SimplexModel {
         }
 
         const optimalPlan = {};
-        solution.forEach((v, i) => { optimalPlan[`x${i + 1}`] = Math.round(v * 10000) / 10000; });
+        solution.forEach((v, i) => { optimalPlan[`x${i + 1}`] = v; });
 
         return {
             status: 'success', optimalPlan,
-            maxZ: Math.round(this.tableau[m][rhsIdx][0] * 10000) / 10000,
+            maxZ: this.tableau[m][rhsIdx][0],
             history: this.history, numVars: n, numConstraints: this.numConstraints,
             M: this.M
         };
+    }
+
+
+    static _toFrac(val) {
+        if (Math.abs(val) < 1e-9) return '0';
+        const sign = val < 0 ? '-' : '';
+        const absVal = Math.abs(val);
+        if (Math.abs(absVal - Math.round(absVal)) < 1e-7) return (Math.round(val)).toString();
+        for (const d of [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20]) {
+            const numer = Math.round(absVal * d);
+            if (Math.abs(numer / d - absVal) < 1e-7) {
+                if (numer % d === 0) return (Math.round(val)).toString();
+                return `${sign}${numer}/${d}`;
+            }
+        }
+        return (Math.round(val * 10000) / 10000).toString();
     }
 
     static solveInteger(objective, constraints, bounds, signs, optType = 'max') {
@@ -297,8 +313,8 @@ class SimplexModel {
         const relaxedVals = [];
         for (let j = 0; j < n; j++) relaxedVals.push(relaxedResult.optimalPlan[`x${j + 1}`] || 0);
         
-        branchLog.push(`Неперервний оптимум: (${relaxedVals.map(v => v.toFixed(4)).join('; ')})`);
-        branchLog.push(`F = ${relaxedResult.maxZ}`);
+        branchLog.push(`Неперервний оптимум: (${relaxedVals.map(v => SimplexModel._toFrac(v)).join('; ')})`);
+        branchLog.push(`F = ${SimplexModel._toFrac(relaxedResult.maxZ)}`);
 
         gomoryHistory.push({
             iteration: 'Початкова (оптимальна симплекс-таблиця)',
@@ -341,7 +357,7 @@ class SimplexModel {
             const basisVarName = `X${basis[cutRow] + 1}`;
             const rhsValue = tableau[cutRow][rhsIdx][0];
             branchLog.push(`\nВідсічення #${cutNum}`);
-            branchLog.push(`Обрано рядок: ${basisVarName} = ${rhsValue.toFixed(4)}, дробова частина = ${maxFrac.toFixed(4)}`);
+            branchLog.push(`Обрано рядок: ${basisVarName} = ${SimplexModel._toFrac(rhsValue)}, дробова частина = ${SimplexModel._toFrac(maxFrac)}`);
 
             const newSlackIdx = cols - 1;
 
@@ -418,7 +434,7 @@ class SimplexModel {
 
                 const entering = `X${pivotCol + 1}`;
                 const leaving = `X${basis[pivotRow] + 1}`;
-                branchLog.push(`Двоїстий крок: ведучий елемент [${pivotRow}, ${pivotCol}] = ${tableau[pivotRow][pivotCol][0].toFixed(4)}, ${entering} ↔ ${leaving}`);
+                branchLog.push(`Двоїстий крок: ведучий елемент [${pivotRow}, ${pivotCol}] = ${SimplexModel._toFrac(tableau[pivotRow][pivotCol][0])}, ${entering} ↔ ${leaving}`);
 
                 gomoryHistory[gomoryHistory.length - 1].pivotRow = pivotRow;
                 gomoryHistory[gomoryHistory.length - 1].pivotCol = pivotCol;

@@ -149,13 +149,13 @@ class SimplexView {
             <div class="result-cards">
                 <div class="rcard rcard--primary">
                     <div class="rcard-label">${optType === 'min' ? 'Мінімум' : 'Максимум'} F (симплекс)</div>
-                    <div class="rcard-value">${maxZ.toLocaleString('uk-UA')}</div>
+                    <div class="rcard-value">${this._fmtFractionHtml(maxZ)}</div>
                     <div class="rcard-hint">пасажирів</div>
                 </div>
                 ${Object.entries(optimalPlan).map(([key, val]) => `
                 <div class="rcard">
                     <div class="rcard-label">${key}</div>
-                    <div class="rcard-value">${val}</div>
+                    <div class="rcard-value">${this._fmtFractionHtml(val)}</div>
                     <div class="rcard-hint">потягів</div>
                 </div>`).join('')}
             </div>`;
@@ -464,6 +464,21 @@ class SimplexView {
             if (Math.abs(numer / d - absVal) < 1e-7) {
                 if (numer % d === 0) return (Math.round(val)).toString();
                 return `${sign}${numer}/${d}`;
+            }
+        }
+        return (Math.round(val * 100) / 100).toString();
+    }
+
+    _fmtFractionHtml(val) {
+        if (Math.abs(val) < 1e-9) return '0';
+        const sign = val < 0 ? '−' : '';
+        const absVal = Math.abs(val);
+        if (Math.abs(absVal - Math.round(absVal)) < 1e-7) return (Math.round(val)).toString();
+        for (const d of [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 20]) {
+            const numer = Math.round(absVal * d);
+            if (Math.abs(numer / d - absVal) < 1e-7) {
+                if (numer % d === 0) return (Math.round(val)).toString();
+                return `${sign}<span class="frac"><span class="frac-num">${numer}</span><span class="frac-den">${d}</span></span>`;
             }
         }
         return (Math.round(val * 100) / 100).toString();
